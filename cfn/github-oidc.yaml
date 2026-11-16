@@ -1,0 +1,66 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: GitHub Actions OIDC identity provider (plus optional deploy role)
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Description: GitHub organization or username (e.g. my-org)
+  GitHubRepo:
+    Type: String
+    Default: "*"
+    Description: Repository name, or * for all repos in the org
+  CreateRole:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Also create an IAM role that GitHub Actions can assume via OIDC
+  RoleName:
+    Type: String
+    Default: github-actions-oidc-role
+  RoleManagedPolicyArn:
+    Type: String
+    Default: arn:aws:iam::aws:policy/ReadOnlyAccess
+    Description: Policy attached to the role. Replace with least-privilege permissions you need.
+
+Conditions:
+  ShouldCreateRole: !Equals [!Ref CreateRole, "true"]
+
+Resources:
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      # Thumbprint is no longer required for GitHub; AWS validates via its trusted CA library.
+
+  GitHubActionsRole:
+    Type: AWS::IAM::Role
+    Condition: ShouldCreateRole
+    Properties:
+      RoleName: !Ref RoleName
+      ManagedPolicyArns:
+        - !Ref RoleManagedPolicyArn
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOIDCProvider   # Ref returns the provider ARN
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/${GitHubRepo}:*"
+
+Outputs:
+  OIDCProviderArn:
+    Description: ARN of the GitHub OIDC provider
+    Value: !Ref GitHubOIDCProvider
+    Export:
+      Name: !Sub "${AWS::StackName}-OIDCProviderArn"
+  RoleArn:
+    Condition: ShouldCreateRole
+    Description: ARN of the role GitHub Actions can assume
+    Value: !GetAtt GitHubActionsRole.Arn

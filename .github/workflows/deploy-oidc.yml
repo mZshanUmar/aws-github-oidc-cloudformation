@@ -1,0 +1,91 @@
+name: Deploy GitHub OIDC Provider
+
+on:
+  workflow_dispatch:
+    inputs:
+      aws_region:
+        description: AWS region
+        required: true
+        default: us-east-1
+      stack_name:
+        description: CloudFormation stack name
+        required: true
+        default: github-oidc
+      github_org:
+        description: GitHub org/user allowed to assume the role
+        required: true
+      github_repo:
+        description: GitHub repo allowed to assume the role (* for all)
+        required: true
+        default: "*"
+      create_role:
+        description: Also create the IAM role?
+        type: choice
+        options: ["true", "false"]
+        default: "true"
+      role_name:
+        description: IAM role name
+        required: true
+        default: github-actions-oidc-role
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    outputs:
+      oidc_provider_arn: ${{ steps.outputs.outputs.oidc_provider_arn }}
+      role_arn: ${{ steps.outputs.outputs.role_arn }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Keys come from repo Settings > Secrets and variables > Actions.
+      # Never pass keys as workflow inputs: inputs are visible in plain text.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Validate template
+        run: aws cloudformation validate-template --template-body file://cfn/github-oidc.yaml
+
+      - name: Deploy stack
+        run: |
+          aws cloudformation deploy \
+            --template-file cfn/github-oidc.yaml \
+            --stack-name "${{ inputs.stack_name }}" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              GitHubOrg="${{ inputs.github_org }}" \
+              GitHubRepo="${{ inputs.github_repo }}" \
+              CreateRole="${{ inputs.create_role }}" \
+              RoleName="${{ inputs.role_name }}"
+
+      - name: Get stack outputs (ARNs)
+        id: outputs
+        run: |
+          get() {
+            aws cloudformation describe-stacks \
+              --stack-name "${{ inputs.stack_name }}" \
+              --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
+              --output text
+          }
+          PROVIDER_ARN=$(get OIDCProviderArn)
+          ROLE_ARN=$(get RoleArn)
+          [ "$ROLE_ARN" = "None" ] && ROLE_ARN=""
+
+          echo "oidc_provider_arn=$PROVIDER_ARN" >> "$GITHUB_OUTPUT"
+          echo "role_arn=$ROLE_ARN" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Deployment outputs"
+            echo "- **OIDC Provider ARN:** \`$PROVIDER_ARN\`"
+            [ -n "$ROLE_ARN" ] && echo "- **Role ARN:** \`$ROLE_ARN\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "OIDC Provider ARN: $PROVIDER_ARN"
+          echo "Role ARN: $ROLE_ARN"
