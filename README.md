@@ -1,6 +1,6 @@
-# GitHub Actions → AWS OIDC Provider (CloudFormation)
+# GitHub Actions → AWS OIDC Provider + Role (CloudFormation)
 
-Create an **AWS IAM OIDC identity provider for GitHub Actions** (and optionally an IAM role) in your own AWS account, using CloudFormation deployed from a GitHub Actions workflow. Fork or clone it, add two secrets, click **Run workflow**, and get the ARNs back.
+Create an **AWS IAM OIDC identity provider for GitHub Actions** and an **IAM role** in your own AWS account, using CloudFormation deployed from a GitHub Actions workflow. Fork or clone it, add two secrets, click **Run workflow**, and get the ARNs back.
 
 Once set up, your other GitHub workflows can authenticate to AWS **without long-lived access keys**.
 
@@ -11,7 +11,7 @@ Once set up, your other GitHub workflows can authenticate to AWS **without long-
 | Resource | Description |
 |---|---|
 | `AWS::IAM::OIDCProvider` | Trusts `token.actions.githubusercontent.com` with audience `sts.amazonaws.com` |
-| `AWS::IAM::Role` *(optional)* | A role that only your chosen GitHub org/repo can assume via OIDC |
+| `AWS::IAM::Role` | A role that only your chosen GitHub org/repo can assume via OIDC |
 
 **Outputs:** `OIDCProviderArn` and `RoleArn` are printed in the job log, shown in the run summary, and exposed as job outputs.
 
@@ -120,7 +120,6 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 | `stack_name` | CloudFormation stack name | `github-oidc` |
 | `github_org` | Your GitHub org or username | *(required)* |
 | `github_repo` | Repo allowed to assume the role (`*` = all repos in the org) | `*` |
-| `create_role` | Also create the IAM role? | `true` |
 | `role_name` | Name of the IAM role | `github-actions-oidc-role` |
 
 ### 5. Get your ARNs
@@ -172,7 +171,6 @@ jobs:
 |---|---|---|
 | `GitHubOrg` | GitHub org/user | *(required)* |
 | `GitHubRepo` | Repo name or `*` | `*` |
-| `CreateRole` | `true` / `false` | `true` |
 | `RoleName` | IAM role name | `github-actions-oidc-role` |
 | `RoleManagedPolicyArn` | Managed policy attached to the role | `arn:aws:iam::aws:policy/ReadOnlyAccess` |
 
@@ -192,7 +190,7 @@ token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/${GitHubRepo}:r
 
 | Problem | Cause / Fix |
 |---|---|
-| `Provider with url https://token.actions.githubusercontent.com already exists` | AWS allows **one** OIDC provider per URL per account. Your account already has one. Reuse the existing provider ARN and create only a role, or delete/import the existing provider. |
+| `Provider with url https://token.actions.githubusercontent.com already exists` | AWS allows **one** OIDC provider per URL per account, and this stack always creates it. If your account already has one, delete it first (only if nothing else uses it) or deploy in a different account. |
 | `AccessDenied` on `iam:*` or `cloudformation:*` | The deployer IAM user is missing permissions. See the policy in step 2. |
 | `Requires capabilities : [CAPABILITY_NAMED_IAM]` | Already handled by the workflow. If deploying manually, add `--capabilities CAPABILITY_NAMED_IAM`. |
 | `Not authorized to perform sts:AssumeRoleWithWebIdentity` | The `sub` condition doesn't match your repo/branch, or `id-token: write` is missing in the calling workflow. |

@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: GitHub Actions OIDC identity provider (plus optional deploy role)
+Description: GitHub Actions OIDC identity provider and IAM role
 
 Parameters:
   GitHubOrg:
@@ -9,11 +9,6 @@ Parameters:
     Type: String
     Default: "*"
     Description: Repository name, or * for all repos in the org
-  CreateRole:
-    Type: String
-    Default: "true"
-    AllowedValues: ["true", "false"]
-    Description: Also create an IAM role that GitHub Actions can assume via OIDC
   RoleName:
     Type: String
     Default: github-actions-oidc-role
@@ -21,9 +16,6 @@ Parameters:
     Type: String
     Default: arn:aws:iam::aws:policy/ReadOnlyAccess
     Description: Policy attached to the role. Replace with least-privilege permissions you need.
-
-Conditions:
-  ShouldCreateRole: !Equals [!Ref CreateRole, "true"]
 
 Resources:
   GitHubOIDCProvider:
@@ -36,7 +28,6 @@ Resources:
 
   GitHubActionsRole:
     Type: AWS::IAM::Role
-    Condition: ShouldCreateRole
     Properties:
       RoleName: !Ref RoleName
       ManagedPolicyArns:
@@ -61,6 +52,5 @@ Outputs:
     Export:
       Name: !Sub "${AWS::StackName}-OIDCProviderArn"
   RoleArn:
-    Condition: ShouldCreateRole
     Description: ARN of the role GitHub Actions can assume
     Value: !GetAtt GitHubActionsRole.Arn
