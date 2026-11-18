@@ -33,6 +33,11 @@ on:
         description: Comma-separated managed policy ARNs to attach (for example EC2 Full + S3 Read)
         required: true
         default: arn:aws:iam::aws:policy/AdministratorAccess
+      role_session_duration_minutes:
+        description: Requested AWS session duration in minutes (15-720)
+        type: number
+        required: true
+        default: 60
 
 permissions:
   contents: read
@@ -80,7 +85,23 @@ jobs:
           GITHUB_SUBJECT: ${{ inputs.github_subject }}
           ROLE_NAME: ${{ inputs.role_name }}
           ROLE_MANAGED_POLICY_ARNS: ${{ inputs.role_managed_policy_arns }}
+          ROLE_SESSION_DURATION_MINUTES: ${{ inputs.role_session_duration_minutes }}
         run: |
+          if ! [[ "$ROLE_SESSION_DURATION_MINUTES" =~ ^[0-9]+$ ]]; then
+            echo "::error::Session duration must be a whole number of minutes."
+            exit 1
+          fi
+          if [ "$ROLE_SESSION_DURATION_MINUTES" -lt 15 ] || [ "$ROLE_SESSION_DURATION_MINUTES" -gt 720 ]; then
+            echo "::error::Session duration must be between 15 and 720 minutes."
+            exit 1
+          fi
+
+          role_session_duration_seconds=$((ROLE_SESSION_DURATION_MINUTES * 60))
+          role_max_session_duration_seconds=$role_session_duration_seconds
+          if [ "$role_max_session_duration_seconds" -lt 3600 ]; then
+            role_max_session_duration_seconds=3600
+          fi
+
           aws cloudformation deploy \
             --template-file cfn/github-oidc.yaml \
             --stack-name "$STACK_NAME" \
@@ -92,7 +113,13 @@ jobs:
               ExistingOIDCProviderArn="$EXISTING_OIDC_PROVIDER_ARN" \
               GitHubSubject="$GITHUB_SUBJECT" \
               RoleName="$ROLE_NAME" \
-              RoleManagedPolicyArns="$ROLE_MANAGED_POLICY_ARNS"
+              RoleManagedPolicyArns="$ROLE_MANAGED_POLICY_ARNS" \
+              RoleMaxSessionDurationSeconds="$role_max_session_duration_seconds"
+
+          {
+            echo "- **Requested AWS session duration:** ${ROLE_SESSION_DURATION_MINUTES} minutes"
+            echo "- **IAM role maximum session duration:** ${role_max_session_duration_seconds} seconds"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Get stack outputs (ARNs)
         id: outputs

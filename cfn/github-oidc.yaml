@@ -23,6 +23,12 @@ Parameters:
     Type: CommaDelimitedList
     Default: arn:aws:iam::aws:policy/AdministratorAccess
     Description: Comma-separated managed policy ARNs attached to the role
+  RoleMaxSessionDurationSeconds:
+    Type: Number
+    Default: 3600
+    MinValue: 3600
+    MaxValue: 43200
+    Description: Maximum role session duration in seconds (1 to 12 hours)
 
 Conditions:
   CreateOIDCProvider: !Equals [!Ref ExistingOIDCProviderArn, ""]
@@ -42,6 +48,7 @@ Resources:
     Properties:
       RoleName: !Ref RoleName
       ManagedPolicyArns: !Ref RoleManagedPolicyArns
+      MaxSessionDuration: !Ref RoleMaxSessionDurationSeconds
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:

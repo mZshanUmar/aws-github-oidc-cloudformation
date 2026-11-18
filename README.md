@@ -1,6 +1,6 @@
 # GitHub Actions → AWS OIDC Provider + Role (CloudFormation)
 
-Create or reuse an **AWS IAM OIDC identity provider for GitHub Actions** and create an **IAM role** in your own AWS account, using CloudFormation deployed from a GitHub Actions workflow. Fork or clone it, add two secrets, click **Run workflow**, and get the ARNs back.
+OIDC is a standard for federated identity and can be used with many identity providers and CI platforms. This project specifically configures AWS to trust **GitHub Actions**. It creates or reuses the GitHub OIDC provider and creates an **IAM role** in your AWS account using CloudFormation deployed from a GitHub Actions workflow. Fork or clone it, add two secrets, click **Run workflow**, and get the ARNs back.
 
 Once set up, your other GitHub workflows can authenticate to AWS **without long-lived access keys**.
 
@@ -14,6 +14,18 @@ Once set up, your other GitHub workflows can authenticate to AWS **without long-
 | `AWS::IAM::Role` | A role that only your chosen GitHub org/repo can assume via OIDC |
 
 **Outputs:** `OIDCProviderArn` and `RoleArn` are printed in the job log, shown in the run summary, and exposed as job outputs.
+
+## OIDC and credential lifetime
+
+The GitHub OIDC token is a short-lived JWT, valid for **5 minutes**. It is exchanged for temporary AWS STS credentials; the OIDC token and AWS credentials have separate expiration times.
+
+The deployment input `role_session_duration_minutes` sets the desired AWS session duration from **15 to 720 minutes** (default: **60**). The workflow sets the IAM role's maximum session duration to at least 60 minutes; AWS requires that role maximum to be between 1 and 12 hours. The GitHub OIDC token itself remains valid for 5 minutes and cannot be extended by this setting.
+
+The role maximum is only a ceiling. In each workflow that assumes the role, set `role-duration-seconds` to the desired minutes multiplied by 60; the credentials action otherwise defaults to 3600 seconds. For example, 90 minutes requires `role-duration-seconds: 5400`.
+
+This template is GitHub-specific because it trusts `https://token.actions.githubusercontent.com` and checks GitHub's `sub` claim. Other OIDC providers require their own provider URL, audience, and trust conditions.
+
+See [GitHub's OIDC token documentation](https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/about-security-hardening-with-openid-connect#understanding-the-oidc-token) and [AWS STS AssumeRoleWithWebIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRoleWithWebIdentity.html).
 
 ## Repo structure
 
@@ -125,6 +137,7 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 | `github_subject` | OIDC subject suffix to restrict refs or environments | `ref:refs/heads/main` |
 | `role_name` | Name of the IAM role | `github-actions-oidc-role` |
 | `role_managed_policy_arns` | Comma-separated managed policy ARNs to attach to the role | `arn:aws:iam::aws:policy/AdministratorAccess` |
+| `role_session_duration_minutes` | AWS session duration requested by workflows (15-720 minutes) | `60` |
 
 > ⚠️ `AdministratorAccess` grants full AWS account permissions. It is the default, and the workflow warns but does not block deployment. Choose narrower policies whenever possible.
 
@@ -177,6 +190,7 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::123456789012:role/github-actions-oidc-role
           aws-region: us-east-1
+          role-duration-seconds: 3600 # 60 minutes; use role_session_duration_minutes * 60
 
       - run: aws sts get-caller-identity
 ```
@@ -195,6 +209,7 @@ jobs:
 | `GitHubSubject` | OIDC subject suffix for refs or environments | `ref:refs/heads/main` |
 | `RoleName` | IAM role name | `github-actions-oidc-role` |
 | `RoleManagedPolicyArns` | Comma-separated managed policies attached to the role | `arn:aws:iam::aws:policy/AdministratorAccess` |
+| `RoleMaxSessionDurationSeconds` | Maximum IAM role session duration in seconds | `3600` |
 
 The role gets **AdministratorAccess by default**, granting full AWS account permissions. This is highly privileged; choose narrower managed policies with `role_managed_policy_arns` whenever possible.
 
