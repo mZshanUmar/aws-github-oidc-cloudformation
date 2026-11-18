@@ -43,7 +43,34 @@ permissions:
   contents: read
 
 jobs:
+  policy-check:
+    runs-on: ubuntu-latest
+    outputs:
+      requires_admin_approval: ${{ steps.check.outputs.requires_admin_approval }}
+    steps:
+      - name: Check for AdministratorAccess
+        id: check
+        env:
+          ROLE_MANAGED_POLICY_ARNS: ${{ inputs.role_managed_policy_arns }}
+        run: |
+          if printf '%s' "$ROLE_MANAGED_POLICY_ARNS" \
+            | tr ',' '\n' \
+            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+            | grep -Eq ':policy/AdministratorAccess$'; then
+            echo "requires_admin_approval=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::AdministratorAccess was selected. Deployment will wait for approval in the administrator-access environment."
+            {
+              echo "### ⚠️ AdministratorAccess approval required"
+              echo "This policy grants full AWS account permissions. The deployment job will pause for a required reviewer before using AWS credentials."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "requires_admin_approval=false" >> "$GITHUB_OUTPUT"
+          fi
+
   deploy:
+    needs: policy-check
+    environment:
+      name: ${{ needs.policy-check.outputs.requires_admin_approval == 'true' && 'administrator-access' || 'oidc-deployment' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,19 +86,6 @@ jobs:
 
       - name: Validate template
         run: aws cloudformation validate-template --template-body file://cfn/github-oidc.yaml
-
-      - name: Warn about AdministratorAccess
-        env:
-          ROLE_MANAGED_POLICY_ARNS: ${{ inputs.role_managed_policy_arns }}
-        run: |
-          if printf '%s' "$ROLE_MANAGED_POLICY_ARNS" \
-            | tr ',' '\n' \
-            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
-            | grep -Eq ':policy/AdministratorAccess$'; then
-            echo "::warning::AdministratorAccess grants full AWS account permissions. Use only if required."
-            echo "### ⚠️ AdministratorAccess selected" >> "$GITHUB_STEP_SUMMARY"
-            echo "This grants full AWS account permissions." >> "$GITHUB_STEP_SUMMARY"
-          fi
 
       - name: Deploy stack
         env:

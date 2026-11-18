@@ -143,7 +143,9 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 | `role_managed_policy_arns` | Comma-separated managed policy ARNs to attach to the role | `arn:aws:iam::aws:policy/AdministratorAccess` |
 | `role_session_duration_minutes` | AWS session duration requested by workflows (15-720 minutes) | `60` |
 
-> ⚠️ `AdministratorAccess` grants full AWS account permissions. It is the default, and the workflow warns but does not block deployment. Choose narrower policies whenever possible.
+> ⚠️ `AdministratorAccess` grants full AWS account permissions. If selected, the workflow pauses before accessing AWS and requires approval from a reviewer configured for the `administrator-access` GitHub Environment. Choose narrower policies whenever possible.
+
+To enable the approval gate, open **Settings → Environments → New environment**, create an environment named `administrator-access`, and configure **Required reviewers**. Without required reviewers configured, GitHub will not pause the deployment for human approval. The approval is requested before the job receives AWS credentials.
 
 To combine managed policies, enter comma-separated ARNs, for example:
 
@@ -208,7 +210,7 @@ jobs:
 | `RoleManagedPolicyArns` | Comma-separated managed policies attached to the role | `arn:aws:iam::aws:policy/AdministratorAccess` |
 | `RoleMaxSessionDurationSeconds` | Maximum IAM role session duration in seconds | `3600` |
 
-The role gets **AdministratorAccess by default**, granting full AWS account permissions. This is highly privileged; choose narrower managed policies with `role_managed_policy_arns` whenever possible.
+The role gets **AdministratorAccess by default**, granting full AWS account permissions. This is highly privileged; choose narrower managed policies with `role_managed_policy_arns` whenever possible. When that policy is selected, the workflow targets the protected `administrator-access` environment and pauses for required reviewer approval before deploying.
 
 ### Restricting the trust further
 
