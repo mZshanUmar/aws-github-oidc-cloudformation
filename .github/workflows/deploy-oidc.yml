@@ -45,9 +45,6 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    outputs:
-      oidc_provider_arn: ${{ steps.outputs.outputs.oidc_provider_arn }}
-      role_arn: ${{ steps.outputs.outputs.role_arn }}
     steps:
       - uses: actions/checkout@v4
 
@@ -133,14 +130,6 @@ jobs:
           PROVIDER_ARN=$(get OIDCProviderArn)
           ROLE_ARN=$(get RoleArn)
 
-          echo "oidc_provider_arn=$PROVIDER_ARN" >> "$GITHUB_OUTPUT"
-          echo "role_arn=$ROLE_ARN" >> "$GITHUB_OUTPUT"
-
-          {
-            echo "### Deployment outputs"
-            echo "- **OIDC Provider ARN:** \`$PROVIDER_ARN\`"
-            echo "- **Role ARN:** \`$ROLE_ARN\`"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          echo "OIDC Provider ARN: $PROVIDER_ARN"
-          echo "Role ARN: $ROLE_ARN"
+          echo "::add-mask::$PROVIDER_ARN"
+          echo "::add-mask::$ROLE_ARN"
+          echo "OIDC provider and IAM role deployed successfully."

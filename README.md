@@ -13,7 +13,11 @@ Once set up, your other GitHub workflows can authenticate to AWS **without long-
 | `AWS::IAM::OIDCProvider` | Creates the GitHub provider, unless an existing provider ARN is supplied |
 | `AWS::IAM::Role` | A role that only your chosen GitHub org/repo can assume via OIDC |
 
-**Outputs:** `OIDCProviderArn` and `RoleArn` are printed in the job log, shown in the run summary, and exposed as job outputs.
+**Outputs:** The workflow masks the provider ARN and role ARN. It does not print them in logs or the run summary or expose them as job outputs.
+
+If an ARN is needed in another workflow, store it yourself as a repository secret or environment secret. In a public repository, repository secrets are not shown to forked pull requests and are masked in logs. The ARN is an identifier rather than a credential, but you may choose to keep deployment details private.
+
+For example, create a repository secret named `AWS_ROLE_ARN` containing the role ARN. Then reference it as `${{ secrets.AWS_ROLE_ARN }}` in workflows that assume the role. Do not write the ARN to the public README or repository files.
 
 ## OIDC and credential lifetime
 
@@ -157,16 +161,9 @@ You can use AWS-managed policies or existing customer-managed policy ARNs. IAM r
 
 ### 5. Get your ARNs
 
-Open the completed run. The ARNs are in the **run summary** and in the *Get stack outputs (ARNs)* step:
+The deployment workflow masks the ARNs and does not print them publicly. Retrieve the provider and role ARNs locally with the AWS CLI:
 
 ```
-OIDC Provider ARN: arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com
-Role ARN:          arn:aws:iam::123456789012:role/github-actions-oidc-role
-```
-
-You can also fetch them from the CLI:
-
-```bash
 aws cloudformation describe-stacks --stack-name github-oidc \
   --query "Stacks[0].Outputs" --output table
 ```
