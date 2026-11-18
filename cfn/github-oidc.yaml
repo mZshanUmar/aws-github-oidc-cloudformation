@@ -2,36 +2,30 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: GitHub Actions OIDC identity provider and IAM role
 
 Parameters:
+  ExistingOidcProviderArn:
+    Type: String
+    Default: ""
+    Description: Existing GitHub OIDC provider ARN, if any; leave blank to create a new provider
+  RoleName:
+    Type: String
+  RoleManagedPolicyArns:
+    Type: CommaDelimitedList
+    Description: Comma-separated managed policy ARNs attached to the role
   GitHubOrg:
     Type: String
     Description: GitHub organization or username (e.g. my-org)
   GitHubRepo:
     Type: String
     Description: Repository name; set * to allow all repos in the org
-  ExistingOIDCProviderArn:
-    Type: String
-    Default: ""
-    Description: Existing GitHub OIDC provider ARN; leave empty to create one
   GitHubSubject:
     Type: String
-    Default: ref:refs/heads/main
     Description: OIDC subject suffix, such as ref:refs/heads/main or environment:production
-  RoleName:
-    Type: String
-    Default: github-actions-oidc-role
-  RoleManagedPolicyArns:
-    Type: CommaDelimitedList
-    Default: arn:aws:iam::aws:policy/AdministratorAccess
-    Description: Comma-separated managed policy ARNs attached to the role
   RoleMaxSessionDurationSeconds:
     Type: Number
-    Default: 3600
-    MinValue: 3600
-    MaxValue: 43200
     Description: Maximum role session duration in seconds (1 to 12 hours)
 
 Conditions:
-  CreateOIDCProvider: !Equals [!Ref ExistingOIDCProviderArn, ""]
+  CreateOIDCProvider: !Equals [!Ref ExistingOidcProviderArn, ""]
 
 Resources:
   GitHubOIDCProvider:
@@ -57,7 +51,7 @@ Resources:
               Federated: !If
                 - CreateOIDCProvider
                 - !Ref GitHubOIDCProvider
-                - !Ref ExistingOIDCProviderArn
+                - !Ref ExistingOidcProviderArn
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:
@@ -71,9 +65,7 @@ Outputs:
     Value: !If
       - CreateOIDCProvider
       - !Ref GitHubOIDCProvider
-      - !Ref ExistingOIDCProviderArn
-    Export:
-      Name: !Sub "${AWS::StackName}-OIDCProviderArn"
+      - !Ref ExistingOidcProviderArn
   RoleArn:
     Description: ARN of the role GitHub Actions can assume
     Value: !GetAtt GitHubActionsRole.Arn

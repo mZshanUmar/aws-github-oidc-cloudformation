@@ -3,47 +3,67 @@ name: Deploy GitHub OIDC Provider
 on:
   workflow_dispatch:
     inputs:
-      aws_region:
-        description: AWS region
-        required: true
-        default: us-east-1
       stack_name:
-        description: CloudFormation stack name
         required: true
         default: github-oidc
-      github_org:
-        description: GitHub org/user allowed to assume the role
-        required: true
-      github_repo:
-        description: GitHub repo allowed to assume the role (* explicitly allows all repos in the org)
-        required: true
-      existing_oidc_provider_arn:
-        description: Optional existing GitHub OIDC provider ARN; leave blank to create one
+        description: CloudFormation Stack Name
+      oidc_provider_arn:
         required: false
+        description: Existing GitHub OIDC provider ARN if any.
         default: ""
-      github_subject:
-        description: OIDC subject suffix, such as ref:refs/heads/main or environment:production
-        required: true
-        default: ref:refs/heads/main
       role_name:
-        description: IAM role name
         required: true
-        default: github-actions-oidc-role
-      role_managed_policy_arns:
-        description: Comma-separated managed policy ARNs to attach (for example EC2 Full + S3 Read)
+        default: GitHubOIDCRole
+        description: IAM Role name to create for GitHub OIDC access
+      aws_managed_policy_arns:
         required: true
         default: arn:aws:iam::aws:policy/AdministratorAccess
-      role_session_duration_minutes:
-        description: Requested AWS session duration in minutes (15-720)
+        description: Comma-separated managed policy ARNs to attach.
+      github_org:
+        required: true
+        description: GitHub org/user allowed to assume the role
+      github_repo:
+        required: true
+        description: GitHub repo allowed to assume the role (* explicitly allows all repos in the org)
+      github_subject:
+        required: true
+        default: ref:refs/heads/main
+        description: OIDC subject suffix, such as ref:refs/heads/main or environment:production
+      aws_session_duration_minutes:
         type: number
         required: true
-        default: 60
+        description: Maximum role session duration in minutes (15-720)
 
 permissions:
   contents: read
 
 jobs:
-  policy-check:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      role_max_session_duration_seconds: ${{ steps.validate.outputs.role_max_session_duration_seconds }}
+    steps:
+      - name: Validate Input aws_session_duration_minutes
+        id: validate
+        env:
+          AWS_SESSION_DURATION_MINUTES: ${{ inputs.aws_session_duration_minutes }}
+        run: |
+          if ! [[ "$AWS_SESSION_DURATION_MINUTES" =~ ^[0-9]+$ ]]; then
+            echo "::error::Session duration must be a whole number of minutes."
+            exit 1
+          fi
+          if [ "$AWS_SESSION_DURATION_MINUTES" -lt 15 ] || [ "$AWS_SESSION_DURATION_MINUTES" -gt 720 ]; then
+            echo "::error::Session duration must be between 15 and 720 minutes."
+            exit 1
+          fi
+          requested_session_duration_seconds=$((AWS_SESSION_DURATION_MINUTES * 60))
+          role_max_session_duration_seconds=$requested_session_duration_seconds
+          if [ "$role_max_session_duration_seconds" -lt 3600 ]; then
+            role_max_session_duration_seconds=3600
+          fi
+          echo "role_max_session_duration_seconds=$role_max_session_duration_seconds" >> "$GITHUB_OUTPUT"
+
+  policy-review:
     runs-on: ubuntu-latest
     outputs:
       requires_admin_approval: ${{ steps.check.outputs.requires_admin_approval }}
@@ -51,38 +71,32 @@ jobs:
       - name: Check for AdministratorAccess
         id: check
         env:
-          ROLE_MANAGED_POLICY_ARNS: ${{ inputs.role_managed_policy_arns }}
+          ROLE_MANAGED_POLICY_ARNS: ${{ inputs.aws_managed_policy_arns }}
         run: |
-          if printf '%s' "$ROLE_MANAGED_POLICY_ARNS" \
-            | tr ',' '\n' \
-            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
-            | grep -Eq ':policy/AdministratorAccess$'; then
+          if printf '%s' "$ROLE_MANAGED_POLICY_ARNS" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -Eq ':policy/AdministratorAccess$'; then
             echo "requires_admin_approval=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::AdministratorAccess was selected. Deployment will wait for approval in the administrator-access environment."
+            echo "::warning::AdministratorAccess was selected. Deployment will wait for approval."
             {
-              echo "### ⚠️ AdministratorAccess approval required"
+              echo "### ⚠️ Administrator Access approval required"
               echo "This policy grants full AWS account permissions. The deployment job will pause for a required reviewer before using AWS credentials."
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "requires_admin_approval=false" >> "$GITHUB_OUTPUT"
           fi
 
-  deploy:
-    needs: policy-check
+  deploy-oidc:
+    needs: [validate-inputs, policy-review]
     environment:
-      name: ${{ needs.policy-check.outputs.requires_admin_approval == 'true' && 'administrator-access' || 'oidc-deployment' }}
+      name: ${{ needs.policy-review.outputs.requires_admin_approval == 'true' && 'administrator-access' || 'oidc-deployment' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # Keys come from repo Settings > Secrets and variables > Actions.
-      # Never pass keys as workflow inputs: inputs are visible in plain text.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ inputs.aws_region }}
+          aws-region: us-east-1
 
       - name: Validate template
         run: aws cloudformation validate-template --template-body file://cfn/github-oidc.yaml
@@ -90,71 +104,44 @@ jobs:
       - name: Deploy stack
         env:
           STACK_NAME: ${{ inputs.stack_name }}
+          OIDC_PROVIDER_ARN: ${{ inputs.oidc_provider_arn }}
+          ROLE_NAME: ${{ inputs.role_name }}
+          ROLE_MANAGED_POLICY_ARNS: ${{ inputs.aws_managed_policy_arns }}
           GITHUB_ORG: ${{ inputs.github_org }}
           GITHUB_REPO: ${{ inputs.github_repo }}
-          EXISTING_OIDC_PROVIDER_ARN: ${{ inputs.existing_oidc_provider_arn }}
           GITHUB_SUBJECT: ${{ inputs.github_subject }}
-          ROLE_NAME: ${{ inputs.role_name }}
-          ROLE_MANAGED_POLICY_ARNS: ${{ inputs.role_managed_policy_arns }}
-          ROLE_SESSION_DURATION_MINUTES: ${{ inputs.role_session_duration_minutes }}
+          ROLE_MAX_SESSION_DURATION_SECONDS: ${{ needs.validate-inputs.outputs.role_max_session_duration_seconds }}
         run: |
-          if ! [[ "$ROLE_SESSION_DURATION_MINUTES" =~ ^[0-9]+$ ]]; then
-            echo "::error::Session duration must be a whole number of minutes."
-            exit 1
-          fi
-          if [ "$ROLE_SESSION_DURATION_MINUTES" -lt 15 ] || [ "$ROLE_SESSION_DURATION_MINUTES" -gt 720 ]; then
-            echo "::error::Session duration must be between 15 and 720 minutes."
-            exit 1
-          fi
-
-          requested_session_duration_seconds=$((ROLE_SESSION_DURATION_MINUTES * 60))
-          role_max_session_duration_seconds=$requested_session_duration_seconds
-          if [ "$role_max_session_duration_seconds" -lt 3600 ]; then
-            role_max_session_duration_seconds=3600
-          fi
-
-          aws cloudformation deploy \
-            --template-file cfn/github-oidc.yaml \
-            --stack-name "$STACK_NAME" \
-            --capabilities CAPABILITY_NAMED_IAM \
+          aws cloudformation deploy --template-file cfn/github-oidc.yaml --stack-name "$STACK_NAME" --capabilities CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset \
             --parameter-overrides \
-              GitHubOrg="$GITHUB_ORG" \
-              GitHubRepo="$GITHUB_REPO" \
-              ExistingOIDCProviderArn="$EXISTING_OIDC_PROVIDER_ARN" \
-              GitHubSubject="$GITHUB_SUBJECT" \
+              ExistingOidcProviderArn="$OIDC_PROVIDER_ARN" \
               RoleName="$ROLE_NAME" \
               RoleManagedPolicyArns="$ROLE_MANAGED_POLICY_ARNS" \
-              RoleMaxSessionDurationSeconds="$role_max_session_duration_seconds"
-
-          {
-            echo "- **Requested AWS session duration:** ${ROLE_SESSION_DURATION_MINUTES} minutes"
-            echo "- **IAM role maximum session duration:** $((role_max_session_duration_seconds / 60)) minutes"
-          } >> "$GITHUB_STEP_SUMMARY"
+              GitHubOrg="$GITHUB_ORG" \
+              GitHubRepo="$GITHUB_REPO" \
+              GitHubSubject="$GITHUB_SUBJECT" \
+              RoleMaxSessionDurationSeconds="$ROLE_MAX_SESSION_DURATION_SECONDS"
 
       - name: Get stack outputs (ARNs)
         id: outputs
+        env:
+          STACK_NAME: ${{ inputs.stack_name }}
         run: |
           get() {
             aws cloudformation describe-stacks \
-              --stack-name "${{ inputs.stack_name }}" \
+              --stack-name "$STACK_NAME" \
               --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
               --output text
           }
-          PROVIDER_ARN=$(get OIDCProviderArn)
-          ROLE_ARN=$(get RoleArn)
 
-          echo "::add-mask::$PROVIDER_ARN"
-          echo "::add-mask::$ROLE_ARN"
-          PROVIDER_ARN_REDACTED=$(printf '%s' "$PROVIDER_ARN" | sed -E 's/::[0-9]{12}:/::************:/')
-          ROLE_ARN_REDACTED=$(printf '%s' "$ROLE_ARN" | sed -E 's/::[0-9]{12}:/::************:/')
+          PROVIDER_ARN_REDACTED=$(printf '%s' "$(get OIDCProviderArn)" | sed -E 's/::[0-9]{12}:/::************:/')
+          ROLE_ARN_REDACTED=$(printf '%s' "$(get RoleArn)" | sed -E 's/::[0-9]{12}:/::************:/')
 
           {
-            echo "### Deployment outputs"
+            echo "### Deployment Outputs"
             echo "- **OIDC Provider ARN:** \`$PROVIDER_ARN_REDACTED\`"
             echo "- **Role ARN:** \`$ROLE_ARN_REDACTED\`"
             echo
             echo "The 12-digit AWS account ID is redacted. Retrieve full ARNs from the CloudFormation stack Outputs."
           } >> "$GITHUB_STEP_SUMMARY"
-
-          echo "OIDC provider and IAM role deployed successfully. Redacted ARNs are in the run summary."

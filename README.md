@@ -1,8 +1,6 @@
 # GitHub Actions → AWS OIDC Provider + Role (CloudFormation)
 
-OIDC is a standard for federated identity and can be used with many identity providers and CI platforms. This project specifically configures AWS to trust **GitHub Actions**. It creates or reuses the GitHub OIDC provider and creates an **IAM role** in your AWS account using CloudFormation deployed from a GitHub Actions workflow. Fork or clone it, add the AWS bootstrap repository secrets, click **Run workflow**, and see redacted ARNs in the run summary.
-
-Once set up, your other GitHub workflows can authenticate to AWS **without long-lived access keys**.
+This project uses CloudFormation and GitHub Actions to create an AWS IAM role trusted by GitHub Actions. You can create a GitHub OIDC provider or reuse one already in your account. Workflows using the role can access AWS without long-lived AWS keys.
 
 ---
 
@@ -10,35 +8,14 @@ Once set up, your other GitHub workflows can authenticate to AWS **without long-
 
 | Resource | Description |
 |---|---|
-| `AWS::IAM::OIDCProvider` | Creates the GitHub provider, unless an existing provider ARN is supplied |
-| `AWS::IAM::Role` | A role that only your chosen GitHub org/repo can assume via OIDC |
+| `AWS::IAM::OIDCProvider` | Created unless you provide an existing provider ARN |
+| `AWS::IAM::Role` | Trusted by the GitHub org, repository, and subject you configure |
 
-**Outputs:** The workflow masks the full provider and role ARNs from logs and shows both in the run summary with the 12-digit AWS account ID redacted. Full ARNs remain available in the CloudFormation stack Outputs.
+The workflow shows redacted ARNs in the run summary; full ARNs are available in the CloudFormation stack Outputs.
 
 ## OIDC and credential lifetime
 
-The GitHub OIDC token is a short-lived JWT, valid for **5 minutes**. It is exchanged for temporary AWS STS credentials; the OIDC token and AWS credentials have separate expiration times.
-
-The deployment input `role_session_duration_minutes` uses minutes: **15 to 720 minutes** (default: **60 minutes**). AWS STS `AssumeRoleWithWebIdentity` has a hard minimum of **15 minutes** for a requested session. Separately, IAM requires the role's maximum session duration to be at least **60 minutes**; if a requested session is shorter, the workflow sets the role maximum to 60 minutes. The GitHub OIDC token itself remains valid for 5 minutes and cannot be extended by this setting. The workflow converts minutes to seconds internally for AWS.
-
-The role maximum is only a ceiling. In each workflow that assumes the role, set `role-duration-seconds` to the desired duration in seconds because that action input requires seconds; its default is 3,600 seconds (60 minutes). For example, for a 90-minute session use `role-duration-seconds: 5400`.
-
-This template is GitHub-specific because it trusts `https://token.actions.githubusercontent.com` and checks GitHub's `sub` claim. Other OIDC providers require their own provider URL, audience, and trust conditions.
-
-See [GitHub's OIDC token documentation](https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/about-security-hardening-with-openid-connect#understanding-the-oidc-token) and [AWS STS AssumeRoleWithWebIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRoleWithWebIdentity.html).
-
-## Repo structure
-
-```
-.
-├── cfn/
-│   └── github-oidc.yaml              # CloudFormation template
-├── .github/
-│   └── workflows/
-│       └── deploy-oidc.yml           # Deployment workflow (manual trigger)
-├── LICENSE                           # MIT License
-└── README.md
-```
+`aws_session_duration_minutes` sets the role's maximum session duration (15–720 minutes); it does not set the duration requested by workflows that assume the role. IAM requires a maximum of at least 60 minutes, so smaller inputs set the role maximum to 60 minutes. In consuming workflows, set `role-duration-seconds` separately (for example, `5400` for 90 minutes). The GitHub OIDC token is valid for 5 minutes and is separate from the AWS session.
 
 ---
 
@@ -46,13 +23,13 @@ See [GitHub's OIDC token documentation](https://docs.github.com/en/actions/secur
 
 ### 1. Fork or clone this repo
 
-Click **Fork** on GitHub, or:
+Fork the repository, or clone it and push it to your own GitHub repository:
 
 ```bash
 git clone https://github.com/<your-user>/<this-repo>.git
 ```
 
-> If you clone and push to your own repo, make sure Actions are enabled in it (Settings → Actions → General).
+Enable GitHub Actions in your repository (**Settings → Actions → General**).
 
 ### 2. Create an IAM user for the first deployment
 
@@ -96,12 +73,12 @@ You need one-time credentials to create the IAM role and, unless reusing an exis
         "iam:GetRole",
         "iam:DeleteRole",
         "iam:TagRole",
+        "iam:UpdateRole",
         "iam:UpdateAssumeRolePolicy",
         "iam:AttachRolePolicy",
         "iam:DetachRolePolicy",
         "iam:ListAttachedRolePolicies",
-        "iam:ListRolePolicies",
-        "iam:PassRole"
+        "iam:ListRolePolicies"
       ],
       "Resource": "*"
     }
@@ -121,7 +98,7 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 | `AWS_ACCESS_KEY_ID` | Access key ID of the IAM user |
 | `AWS_SECRET_ACCESS_KEY` | Secret access key of the IAM user |
 
-> ⚠️ **Never** commit keys to the repo and never pass them as workflow inputs. Workflow inputs are visible in plain text; secrets are masked.
+Never commit these keys or pass them as workflow inputs. Inputs are visible in plain text.
 
 ### 4. Run the workflow
 
@@ -129,37 +106,32 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 
 | Input | Description | Default |
 |---|---|---|
-| `aws_region` | Region to deploy the stack in | `us-east-1` |
 | `stack_name` | CloudFormation stack name | `github-oidc` |
+| `oidc_provider_arn` | Existing GitHub OIDC provider ARN; leave blank to create one | *(empty)* |
+| `role_name` | IAM role name | `GitHubOIDCRole` |
+| `aws_managed_policy_arns` | Comma-separated managed policy ARNs to attach to the role | `arn:aws:iam::aws:policy/AdministratorAccess` |
 | `github_org` | Your GitHub org or username | *(required)* |
 | `github_repo` | Repo allowed to assume the role; `*` explicitly allows all repos in the org | *(required)* |
-| `existing_oidc_provider_arn` | Existing GitHub OIDC provider ARN; leave blank to create one | *(empty)* |
 | `github_subject` | OIDC subject suffix to restrict refs or environments | `ref:refs/heads/main` |
-| `role_name` | Name of the IAM role | `github-actions-oidc-role` |
-| `role_managed_policy_arns` | Comma-separated managed policy ARNs to attach to the role | `arn:aws:iam::aws:policy/AdministratorAccess` |
-| `role_session_duration_minutes` | AWS session duration requested by workflows (15-720 minutes) | `60` |
+| `aws_session_duration_minutes` | Maximum role session duration (15-720 minutes); consuming workflows request their session duration separately | *(required)* |
 
-> ⚠️ `AdministratorAccess` grants full AWS account permissions. If selected, the workflow pauses before accessing AWS and requires approval from a reviewer configured for the `administrator-access` GitHub Environment. Choose narrower policies whenever possible.
+`AdministratorAccess` grants full AWS account permissions. When selected, the workflow pauses before accessing AWS if the `administrator-access` environment has **Required reviewers** configured (**Settings → Environments**). Without reviewers, it will not pause.
 
-To enable the approval gate, open **Settings → Environments → New environment**, create an environment named `administrator-access`, and configure **Required reviewers**. Without required reviewers configured, GitHub will not pause the deployment for human approval. The approval is requested before the job receives AWS credentials.
-
-To combine managed policies, enter comma-separated ARNs, for example:
+Enter multiple managed policy ARNs separated by commas (up to 10 by default), for example:
 
 ```text
 arn:aws:iam::aws:policy/AmazonEC2FullAccess,arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
 ```
 
-`github_repo` is required. Enter a specific repository name; use `*` only if you intend to trust every repository in the organization.
+Use a specific `github_repo` whenever possible; `*` trusts all repositories in the selected org. Policy ARNs can refer to AWS-managed or existing customer-managed policies.
 
-If the AWS account already has a GitHub OIDC provider, set `existing_oidc_provider_arn` to its ARN. The provider must belong to the same AWS account and use `https://token.actions.githubusercontent.com` with `sts.amazonaws.com` as a client ID. When supplied, this stack reuses the provider and does not manage it: its settings and existing roles' trust policies are left unchanged. This stack changes only the role it creates or updates. Only use this input for a provider external to this stack; if this stack created the provider, leave the input blank so CloudFormation continues managing it.
+To reuse a provider, set `oidc_provider_arn` to a GitHub provider in the same AWS account, configured with `https://token.actions.githubusercontent.com` and audience `sts.amazonaws.com`. The stack does not manage a supplied provider or change other roles' trust policies. Leave the input blank if this stack created the provider.
 
-To list provider ARNs, run `aws iam list-open-id-connect-providers --query "OpenIDConnectProviderList[].Arn" --output text` and select the GitHub provider ARN.
-
-You can use AWS-managed policies or existing customer-managed policy ARNs. IAM roles support up to 10 attached managed policies by default.
+List provider ARNs with `aws iam list-open-id-connect-providers --query "OpenIDConnectProviderList[].Arn" --output text`.
 
 ### 5. Get your ARNs
 
-The deployment workflow masks the full ARNs from logs and displays them in the run summary with the account ID redacted. The redacted values are for identifying the resources, not for use in workflows. Retrieve the full ARNs from **CloudFormation → Stacks → your stack → Outputs** or locally with the AWS CLI:
+The run summary redacts the account ID, so use the full values from **CloudFormation → Stacks → your stack → Outputs** or the AWS CLI:
 
 ```bash
 aws cloudformation describe-stacks --stack-name github-oidc \
@@ -167,7 +139,7 @@ aws cloudformation describe-stacks --stack-name github-oidc \
   --query "Stacks[0].Outputs" --output table
 ```
 
-Replace the stack name or region if you used different values. The ARNs identify AWS resources but are not credentials; keep the role trust policy and attached permissions properly restricted.
+Replace the stack name if needed. ARNs identify resources but are not credentials; keep the role's trust and permissions restricted.
 
 ---
 
@@ -186,30 +158,30 @@ jobs:
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::123456789012:role/github-actions-oidc-role
+          role-to-assume: arn:aws:iam::123456789012:role/GitHubOIDCRole
           aws-region: us-east-1
           role-duration-seconds: 3600 # 60 minutes; action input is in seconds
 
       - run: aws sts get-caller-identity
 ```
 
-The deployment workflow still uses `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` to deploy or update the CloudFormation stack. Keep these secrets if you plan to use this workflow again; otherwise, remove them and the bootstrap IAM user's access keys after deployment.
+The deployment workflow uses the bootstrap secrets to deploy or update the stack in `us-east-1`. Remove the secrets and deactivate the bootstrap keys when you no longer need them.
 
 ---
 
 ## Template parameters
 
-| Parameter | Description | Default |
+| Parameter | Description | Value supplied by workflow |
 |---|---|---|
+| `ExistingOidcProviderArn` | Existing GitHub OIDC provider ARN; leave blank to create one | Empty string |
+| `RoleName` | IAM role name | `role_name` input |
+| `RoleManagedPolicyArns` | Comma-separated managed policies attached to the role | `aws_managed_policy_arns` input |
 | `GitHubOrg` | GitHub org/user | *(required)* |
 | `GitHubRepo` | Repo name or `*` | *(required)* |
-| `ExistingOIDCProviderArn` | Existing GitHub OIDC provider ARN, or empty to create one | *(empty)* |
-| `GitHubSubject` | OIDC subject suffix for refs or environments | `ref:refs/heads/main` |
-| `RoleName` | IAM role name | `github-actions-oidc-role` |
-| `RoleManagedPolicyArns` | Comma-separated managed policies attached to the role | `arn:aws:iam::aws:policy/AdministratorAccess` |
-| `RoleMaxSessionDurationSeconds` | Maximum IAM role session duration (60-720 minutes; supplied in seconds internally) | `3600` (60 minutes) |
+| `GitHubSubject` | OIDC subject suffix for refs or environments | `github_subject` input |
+| `RoleMaxSessionDurationSeconds` | Maximum IAM role session duration, in seconds | Calculated from `aws_session_duration_minutes` |
 
-The role gets **AdministratorAccess by default**, granting full AWS account permissions. This is highly privileged; choose narrower managed policies with `role_managed_policy_arns` whenever possible. When that policy is selected, the workflow targets the protected `administrator-access` environment and pauses for required reviewer approval before deploying.
+`ExistingOidcProviderArn` is the only parameter with a default (empty). For direct deployments, provide all other parameters and set it to an existing provider ARN or leave it empty to create one.
 
 ### Restricting the trust further
 
@@ -229,7 +201,7 @@ Set `github_subject` to restrict which refs or GitHub environments can assume th
 
 | Problem | Cause / Fix |
 |---|---|
-| `Provider with url https://token.actions.githubusercontent.com already exists` | Set `existing_oidc_provider_arn` to the ARN of the existing provider. Do not delete a provider that other roles or stacks use. |
+| `Provider with url https://token.actions.githubusercontent.com already exists` | Set `oidc_provider_arn` to the ARN of the existing provider. Do not delete a provider that other roles or stacks use. |
 | `AccessDenied` on `iam:*` or `cloudformation:*` | The deployer IAM user is missing permissions. See the policy in step 2. |
 | `Requires capabilities : [CAPABILITY_NAMED_IAM]` | Already handled by the workflow. If deploying manually, add `--capabilities CAPABILITY_NAMED_IAM`. |
 | `Not authorized to perform sts:AssumeRoleWithWebIdentity` | The `sub` condition doesn't match your repo/branch, or `id-token: write` is missing in the calling workflow. |
@@ -243,15 +215,7 @@ Set `github_subject` to restrict which refs or GitHub environments can assume th
 aws cloudformation delete-stack --stack-name github-oidc --region us-east-1
 ```
 
-This removes the role and any OIDC provider created by this stack. A provider supplied through `existing_oidc_provider_arn` is external to the stack and is left in place.
-
----
-
-## Security notes
-
-- The deployment workflow still reads bootstrap AWS credentials from repository secrets. Keep them only if you need to run or update this deployment workflow; otherwise remove the secrets and deactivate the bootstrap keys.
-- Scope `GitHubRepo` to a specific repo instead of `*` wherever possible.
-- Review IAM permissions attached to the role before using it for deployments.
+This removes the role and any OIDC provider created by the stack. Before deleting, ensure no other roles or stacks depend on that provider. A provider supplied through `oidc_provider_arn` is left in place.
 
 ## License
 
