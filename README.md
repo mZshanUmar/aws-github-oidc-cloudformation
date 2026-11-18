@@ -24,6 +24,7 @@ Once set up, your other GitHub workflows can authenticate to AWS **without long-
 ├── .github/
 │   └── workflows/
 │       └── deploy-oidc.yml           # Deployment workflow (manual trigger)
+├── LICENSE                           # MIT License
 └── README.md
 ```
 
@@ -119,8 +120,22 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 | `aws_region` | Region to deploy the stack in | `us-east-1` |
 | `stack_name` | CloudFormation stack name | `github-oidc` |
 | `github_org` | Your GitHub org or username | *(required)* |
-| `github_repo` | Repo allowed to assume the role (`*` = all repos in the org) | `*` |
+| `github_repo` | Repo allowed to assume the role; `*` explicitly allows all repos in the org | *(required)* |
+| `github_subject` | OIDC subject suffix to restrict refs or environments | `ref:refs/heads/main` |
 | `role_name` | Name of the IAM role | `github-actions-oidc-role` |
+| `role_managed_policy_arns` | Comma-separated managed policy ARNs to attach to the role | `arn:aws:iam::aws:policy/AdministratorAccess` |
+
+> ⚠️ `AdministratorAccess` grants full AWS account permissions. It is the default, and the workflow warns but does not block deployment. Choose narrower policies whenever possible.
+
+To combine managed policies, enter comma-separated ARNs, for example:
+
+```text
+arn:aws:iam::aws:policy/AmazonEC2FullAccess,arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+```
+
+`github_repo` is required. Enter a specific repository name; use `*` only if you intend to trust every repository in the organization.
+
+You can use AWS-managed policies or existing customer-managed policy ARNs. IAM roles support up to 10 attached managed policies by default.
 
 ### 5. Get your ARNs
 
@@ -170,19 +185,24 @@ jobs:
 | Parameter | Description | Default |
 |---|---|---|
 | `GitHubOrg` | GitHub org/user | *(required)* |
-| `GitHubRepo` | Repo name or `*` | `*` |
+| `GitHubRepo` | Repo name or `*` | *(required)* |
+| `GitHubSubject` | OIDC subject suffix for refs or environments | `ref:refs/heads/main` |
 | `RoleName` | IAM role name | `github-actions-oidc-role` |
-| `RoleManagedPolicyArn` | Managed policy attached to the role | `arn:aws:iam::aws:policy/ReadOnlyAccess` |
+| `RoleManagedPolicyArns` | Comma-separated managed policies attached to the role | `arn:aws:iam::aws:policy/AdministratorAccess` |
 
-The role gets **ReadOnlyAccess by default**. Change `RoleManagedPolicyArn` (or edit the template) to grant what your pipelines actually need, following least privilege.
+The role gets **AdministratorAccess by default**, granting full AWS account permissions. This is highly privileged; choose narrower managed policies with `role_managed_policy_arns` whenever possible.
 
 ### Restricting the trust further
 
-The trust policy matches `repo:<org>/<repo>:*`. To lock it down to a branch or environment, edit the `sub` condition in `cfn/github-oidc.yaml`, e.g.:
+Set `github_subject` to restrict which refs or GitHub environments can assume the role. It is the part after `repo:<org>/<repo>:` in the OIDC `sub` claim:
 
-```yaml
-token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/main"
-```
+| `github_subject` | Allows |
+|---|---|
+| `*` | Any ref or environment in the selected repo |
+| `ref:refs/heads/main` | The `main` branch |
+| `ref:refs/heads/release/*` | Branches under `release/` |
+| `ref:refs/tags/v*` | Tags starting with `v` |
+| `environment:production` | Jobs using the `production` GitHub environment |
 
 ---
 
@@ -210,11 +230,11 @@ This removes the OIDC provider and the role created by this stack.
 
 ## Security notes
 
-- Prefer **repository secrets** (or environment secrets with required reviewers) for the bootstrap keys.
+- The deployment workflow reads bootstrap credentials from repository secrets. Environment secrets require configuring a GitHub environment on the deployment job.
 - Rotate or delete the bootstrap IAM keys once OIDC is working.
 - Scope `GitHubRepo` to a specific repo instead of `*` wherever possible.
 - Review IAM permissions attached to the role before using it for deployments.
 
 ## License
 
-MIT (or your preferred license). Add a `LICENSE` file before publishing.
+This project is licensed under the MIT License. See [LICENSE](./LICENSE).

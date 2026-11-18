@@ -7,15 +7,18 @@ Parameters:
     Description: GitHub organization or username (e.g. my-org)
   GitHubRepo:
     Type: String
-    Default: "*"
-    Description: Repository name, or * for all repos in the org
+    Description: Repository name; set * to allow all repos in the org
+  GitHubSubject:
+    Type: String
+    Default: ref:refs/heads/main
+    Description: OIDC subject suffix, such as ref:refs/heads/main or environment:production
   RoleName:
     Type: String
     Default: github-actions-oidc-role
-  RoleManagedPolicyArn:
-    Type: String
-    Default: arn:aws:iam::aws:policy/ReadOnlyAccess
-    Description: Policy attached to the role. Replace with least-privilege permissions you need.
+  RoleManagedPolicyArns:
+    Type: CommaDelimitedList
+    Default: arn:aws:iam::aws:policy/AdministratorAccess
+    Description: Comma-separated managed policy ARNs attached to the role
 
 Resources:
   GitHubOIDCProvider:
@@ -30,8 +33,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Ref RoleName
-      ManagedPolicyArns:
-        - !Ref RoleManagedPolicyArn
+      ManagedPolicyArns: !Ref RoleManagedPolicyArns
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -43,7 +45,7 @@ Resources:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
               StringLike:
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/${GitHubRepo}:*"
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/${GitHubRepo}:${GitHubSubject}"
 
 Outputs:
   OIDCProviderArn:

@@ -15,13 +15,20 @@ on:
         description: GitHub org/user allowed to assume the role
         required: true
       github_repo:
-        description: GitHub repo allowed to assume the role (* for all)
+        description: GitHub repo allowed to assume the role (* explicitly allows all repos in the org)
         required: true
-        default: "*"
+      github_subject:
+        description: OIDC subject suffix, such as ref:refs/heads/main or environment:production
+        required: true
+        default: ref:refs/heads/main
       role_name:
         description: IAM role name
         required: true
         default: github-actions-oidc-role
+      role_managed_policy_arns:
+        description: Comma-separated managed policy ARNs to attach (for example EC2 Full + S3 Read)
+        required: true
+        default: arn:aws:iam::aws:policy/AdministratorAccess
 
 permissions:
   contents: read
@@ -47,17 +54,39 @@ jobs:
       - name: Validate template
         run: aws cloudformation validate-template --template-body file://cfn/github-oidc.yaml
 
+      - name: Warn about AdministratorAccess
+        env:
+          ROLE_MANAGED_POLICY_ARNS: ${{ inputs.role_managed_policy_arns }}
+        run: |
+          if printf '%s' "$ROLE_MANAGED_POLICY_ARNS" \
+            | tr ',' '\n' \
+            | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+            | grep -Eq ':policy/AdministratorAccess$'; then
+            echo "::warning::AdministratorAccess grants full AWS account permissions. Use only if required."
+            echo "### ⚠️ AdministratorAccess selected" >> "$GITHUB_STEP_SUMMARY"
+            echo "This grants full AWS account permissions." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Deploy stack
+        env:
+          STACK_NAME: ${{ inputs.stack_name }}
+          GITHUB_ORG: ${{ inputs.github_org }}
+          GITHUB_REPO: ${{ inputs.github_repo }}
+          GITHUB_SUBJECT: ${{ inputs.github_subject }}
+          ROLE_NAME: ${{ inputs.role_name }}
+          ROLE_MANAGED_POLICY_ARNS: ${{ inputs.role_managed_policy_arns }}
         run: |
           aws cloudformation deploy \
             --template-file cfn/github-oidc.yaml \
-            --stack-name "${{ inputs.stack_name }}" \
+            --stack-name "$STACK_NAME" \
             --capabilities CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset \
             --parameter-overrides \
-              GitHubOrg="${{ inputs.github_org }}" \
-              GitHubRepo="${{ inputs.github_repo }}" \
-              RoleName="${{ inputs.role_name }}"
+              GitHubOrg="$GITHUB_ORG" \
+              GitHubRepo="$GITHUB_REPO" \
+              GitHubSubject="$GITHUB_SUBJECT" \
+              RoleName="$ROLE_NAME" \
+              RoleManagedPolicyArns="$ROLE_MANAGED_POLICY_ARNS"
 
       - name: Get stack outputs (ARNs)
         id: outputs
