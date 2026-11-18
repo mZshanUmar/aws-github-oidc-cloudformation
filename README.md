@@ -1,6 +1,6 @@
 # GitHub Actions → AWS OIDC Provider + Role (CloudFormation)
 
-OIDC is a standard for federated identity and can be used with many identity providers and CI platforms. This project specifically configures AWS to trust **GitHub Actions**. It creates or reuses the GitHub OIDC provider and creates an **IAM role** in your AWS account using CloudFormation deployed from a GitHub Actions workflow. Fork or clone it, add two secrets, click **Run workflow**, and get the ARNs back.
+OIDC is a standard for federated identity and can be used with many identity providers and CI platforms. This project specifically configures AWS to trust **GitHub Actions**. It creates or reuses the GitHub OIDC provider and creates an **IAM role** in your AWS account using CloudFormation deployed from a GitHub Actions workflow. Fork or clone it, add the AWS bootstrap repository secrets, click **Run workflow**, and see redacted ARNs in the run summary.
 
 Once set up, your other GitHub workflows can authenticate to AWS **without long-lived access keys**.
 
@@ -13,11 +13,7 @@ Once set up, your other GitHub workflows can authenticate to AWS **without long-
 | `AWS::IAM::OIDCProvider` | Creates the GitHub provider, unless an existing provider ARN is supplied |
 | `AWS::IAM::Role` | A role that only your chosen GitHub org/repo can assume via OIDC |
 
-**Outputs:** The workflow masks the provider ARN and role ARN. It does not print them in logs or the run summary or expose them as job outputs.
-
-If an ARN is needed in another workflow, store it yourself as a repository secret or environment secret. In a public repository, repository secrets are not shown to forked pull requests and are masked in logs. The ARN is an identifier rather than a credential, but you may choose to keep deployment details private.
-
-For example, create a repository secret named `AWS_ROLE_ARN` containing the role ARN. Then reference it as `${{ secrets.AWS_ROLE_ARN }}` in workflows that assume the role. Do not write the ARN to the public README or repository files.
+**Outputs:** The workflow masks the full provider and role ARNs from logs and shows both in the run summary with the 12-digit AWS account ID redacted. Full ARNs remain available in the CloudFormation stack Outputs.
 
 ## OIDC and credential lifetime
 
@@ -163,18 +159,21 @@ You can use AWS-managed policies or existing customer-managed policy ARNs. IAM r
 
 ### 5. Get your ARNs
 
-The deployment workflow masks the ARNs and does not print them publicly. Retrieve the provider and role ARNs locally with the AWS CLI:
+The deployment workflow masks the full ARNs from logs and displays them in the run summary with the account ID redacted. The redacted values are for identifying the resources, not for use in workflows. Retrieve the full ARNs from **CloudFormation → Stacks → your stack → Outputs** or locally with the AWS CLI:
 
-```
+```bash
 aws cloudformation describe-stacks --stack-name github-oidc \
+  --region us-east-1 \
   --query "Stacks[0].Outputs" --output table
 ```
+
+Replace the stack name or region if you used different values. The ARNs identify AWS resources but are not credentials; keep the role trust policy and attached permissions properly restricted.
 
 ---
 
 ## Using the role in your other workflows
 
-After deployment you no longer need the IAM user keys. In any workflow in the allowed repo:
+Workflows that use the role do not need IAM user keys. In any workflow in the allowed repo:
 
 ```yaml
 permissions:
@@ -194,7 +193,7 @@ jobs:
       - run: aws sts get-caller-identity
 ```
 
-**Then clean up:** delete the IAM user's access keys (and the user), and remove the two repo secrets.
+The deployment workflow still uses `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` to deploy or update the CloudFormation stack. Keep these secrets if you plan to use this workflow again; otherwise, remove them and the bootstrap IAM user's access keys after deployment.
 
 ---
 
@@ -250,8 +249,7 @@ This removes the role and any OIDC provider created by this stack. A provider su
 
 ## Security notes
 
-- The deployment workflow reads bootstrap credentials from repository secrets. Environment secrets require configuring a GitHub environment on the deployment job.
-- Rotate or delete the bootstrap IAM keys once OIDC is working.
+- The deployment workflow still reads bootstrap AWS credentials from repository secrets. Keep them only if you need to run or update this deployment workflow; otherwise remove the secrets and deactivate the bootstrap keys.
 - Scope `GitHubRepo` to a specific repo instead of `*` wherever possible.
 - Review IAM permissions attached to the role before using it for deployments.
 

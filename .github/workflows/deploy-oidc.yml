@@ -146,4 +146,15 @@ jobs:
 
           echo "::add-mask::$PROVIDER_ARN"
           echo "::add-mask::$ROLE_ARN"
-          echo "OIDC provider and IAM role deployed successfully."
+          PROVIDER_ARN_REDACTED=$(printf '%s' "$PROVIDER_ARN" | sed -E 's/::[0-9]{12}:/::************:/')
+          ROLE_ARN_REDACTED=$(printf '%s' "$ROLE_ARN" | sed -E 's/::[0-9]{12}:/::************:/')
+
+          {
+            echo "### Deployment outputs"
+            echo "- **OIDC Provider ARN:** \`$PROVIDER_ARN_REDACTED\`"
+            echo "- **Role ARN:** \`$ROLE_ARN_REDACTED\`"
+            echo
+            echo "The 12-digit AWS account ID is redacted. Retrieve full ARNs from the CloudFormation stack Outputs."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "OIDC provider and IAM role deployed successfully. Redacted ARNs are in the run summary."
