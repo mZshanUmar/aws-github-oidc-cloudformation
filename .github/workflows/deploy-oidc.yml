@@ -107,8 +107,8 @@ jobs:
             exit 1
           fi
 
-          role_session_duration_seconds=$((ROLE_SESSION_DURATION_MINUTES * 60))
-          role_max_session_duration_seconds=$role_session_duration_seconds
+          requested_session_duration_seconds=$((ROLE_SESSION_DURATION_MINUTES * 60))
+          role_max_session_duration_seconds=$requested_session_duration_seconds
           if [ "$role_max_session_duration_seconds" -lt 3600 ]; then
             role_max_session_duration_seconds=3600
           fi
@@ -129,7 +129,7 @@ jobs:
 
           {
             echo "- **Requested AWS session duration:** ${ROLE_SESSION_DURATION_MINUTES} minutes"
-            echo "- **IAM role maximum session duration:** ${role_max_session_duration_seconds} seconds"
+            echo "- **IAM role maximum session duration:** $((role_max_session_duration_seconds / 60)) minutes"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Get stack outputs (ARNs)

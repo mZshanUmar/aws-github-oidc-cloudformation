@@ -19,9 +19,9 @@ Once set up, your other GitHub workflows can authenticate to AWS **without long-
 
 The GitHub OIDC token is a short-lived JWT, valid for **5 minutes**. It is exchanged for temporary AWS STS credentials; the OIDC token and AWS credentials have separate expiration times.
 
-The deployment input `role_session_duration_minutes` sets the desired AWS session duration from **15 to 720 minutes** (default: **60**). The workflow sets the IAM role's maximum session duration to at least 60 minutes; AWS requires that role maximum to be between 1 and 12 hours. The GitHub OIDC token itself remains valid for 5 minutes and cannot be extended by this setting.
+The deployment input `role_session_duration_minutes` uses minutes: **15 to 720 minutes** (default: **60 minutes**). AWS STS `AssumeRoleWithWebIdentity` has a hard minimum of **15 minutes** for a requested session. Separately, IAM requires the role's maximum session duration to be at least **60 minutes**; if a requested session is shorter, the workflow sets the role maximum to 60 minutes. The GitHub OIDC token itself remains valid for 5 minutes and cannot be extended by this setting. The workflow converts minutes to seconds internally for AWS.
 
-The role maximum is only a ceiling. In each workflow that assumes the role, set `role-duration-seconds` to the desired minutes multiplied by 60; the credentials action otherwise defaults to 3600 seconds. For example, 90 minutes requires `role-duration-seconds: 5400`.
+The role maximum is only a ceiling. In each workflow that assumes the role, set `role-duration-seconds` to the desired duration in seconds because that action input requires seconds; its default is 3,600 seconds (60 minutes). For example, for a 90-minute session use `role-duration-seconds: 5400`.
 
 This template is GitHub-specific because it trusts `https://token.actions.githubusercontent.com` and checks GitHub's `sub` claim. Other OIDC providers require their own provider URL, audience, and trust conditions.
 
@@ -188,7 +188,7 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::123456789012:role/github-actions-oidc-role
           aws-region: us-east-1
-          role-duration-seconds: 3600 # 60 minutes; use role_session_duration_minutes * 60
+          role-duration-seconds: 3600 # 60 minutes; action input is in seconds
 
       - run: aws sts get-caller-identity
 ```
@@ -207,7 +207,7 @@ The deployment workflow still uses `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KE
 | `GitHubSubject` | OIDC subject suffix for refs or environments | `ref:refs/heads/main` |
 | `RoleName` | IAM role name | `github-actions-oidc-role` |
 | `RoleManagedPolicyArns` | Comma-separated managed policies attached to the role | `arn:aws:iam::aws:policy/AdministratorAccess` |
-| `RoleMaxSessionDurationSeconds` | Maximum IAM role session duration in seconds | `3600` |
+| `RoleMaxSessionDurationSeconds` | Maximum IAM role session duration (60-720 minutes; supplied in seconds internally) | `3600` (60 minutes) |
 
 The role gets **AdministratorAccess by default**, granting full AWS account permissions. This is highly privileged; choose narrower managed policies with `role_managed_policy_arns` whenever possible. When that policy is selected, the workflow targets the protected `administrator-access` environment and pauses for required reviewer approval before deploying.
 
