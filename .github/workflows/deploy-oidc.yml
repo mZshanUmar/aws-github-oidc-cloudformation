@@ -17,6 +17,10 @@ on:
       github_repo:
         description: GitHub repo allowed to assume the role (* explicitly allows all repos in the org)
         required: true
+      existing_oidc_provider_arn:
+        description: Optional existing GitHub OIDC provider ARN; leave blank to create one
+        required: false
+        default: ""
       github_subject:
         description: OIDC subject suffix, such as ref:refs/heads/main or environment:production
         required: true
@@ -72,6 +76,7 @@ jobs:
           STACK_NAME: ${{ inputs.stack_name }}
           GITHUB_ORG: ${{ inputs.github_org }}
           GITHUB_REPO: ${{ inputs.github_repo }}
+          EXISTING_OIDC_PROVIDER_ARN: ${{ inputs.existing_oidc_provider_arn }}
           GITHUB_SUBJECT: ${{ inputs.github_subject }}
           ROLE_NAME: ${{ inputs.role_name }}
           ROLE_MANAGED_POLICY_ARNS: ${{ inputs.role_managed_policy_arns }}
@@ -84,6 +89,7 @@ jobs:
             --parameter-overrides \
               GitHubOrg="$GITHUB_ORG" \
               GitHubRepo="$GITHUB_REPO" \
+              ExistingOIDCProviderArn="$EXISTING_OIDC_PROVIDER_ARN" \
               GitHubSubject="$GITHUB_SUBJECT" \
               RoleName="$ROLE_NAME" \
               RoleManagedPolicyArns="$ROLE_MANAGED_POLICY_ARNS"

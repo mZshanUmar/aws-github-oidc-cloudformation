@@ -8,6 +8,10 @@ Parameters:
   GitHubRepo:
     Type: String
     Description: Repository name; set * to allow all repos in the org
+  ExistingOIDCProviderArn:
+    Type: String
+    Default: ""
+    Description: Existing GitHub OIDC provider ARN; leave empty to create one
   GitHubSubject:
     Type: String
     Default: ref:refs/heads/main
@@ -20,9 +24,13 @@ Parameters:
     Default: arn:aws:iam::aws:policy/AdministratorAccess
     Description: Comma-separated managed policy ARNs attached to the role
 
+Conditions:
+  CreateOIDCProvider: !Equals [!Ref ExistingOIDCProviderArn, ""]
+
 Resources:
   GitHubOIDCProvider:
     Type: AWS::IAM::OIDCProvider
+    Condition: CreateOIDCProvider
     Properties:
       Url: https://token.actions.githubusercontent.com
       ClientIdList:
@@ -39,7 +47,10 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Federated: !Ref GitHubOIDCProvider   # Ref returns the provider ARN
+              Federated: !If
+                - CreateOIDCProvider
+                - !Ref GitHubOIDCProvider
+                - !Ref ExistingOIDCProviderArn
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:
@@ -49,8 +60,11 @@ Resources:
 
 Outputs:
   OIDCProviderArn:
-    Description: ARN of the GitHub OIDC provider
-    Value: !Ref GitHubOIDCProvider
+    Description: ARN of the created or reused GitHub OIDC provider
+    Value: !If
+      - CreateOIDCProvider
+      - !Ref GitHubOIDCProvider
+      - !Ref ExistingOIDCProviderArn
     Export:
       Name: !Sub "${AWS::StackName}-OIDCProviderArn"
   RoleArn:

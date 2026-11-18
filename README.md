@@ -1,6 +1,6 @@
 # GitHub Actions → AWS OIDC Provider + Role (CloudFormation)
 
-Create an **AWS IAM OIDC identity provider for GitHub Actions** and an **IAM role** in your own AWS account, using CloudFormation deployed from a GitHub Actions workflow. Fork or clone it, add two secrets, click **Run workflow**, and get the ARNs back.
+Create or reuse an **AWS IAM OIDC identity provider for GitHub Actions** and create an **IAM role** in your own AWS account, using CloudFormation deployed from a GitHub Actions workflow. Fork or clone it, add two secrets, click **Run workflow**, and get the ARNs back.
 
 Once set up, your other GitHub workflows can authenticate to AWS **without long-lived access keys**.
 
@@ -10,7 +10,7 @@ Once set up, your other GitHub workflows can authenticate to AWS **without long-
 
 | Resource | Description |
 |---|---|
-| `AWS::IAM::OIDCProvider` | Trusts `token.actions.githubusercontent.com` with audience `sts.amazonaws.com` |
+| `AWS::IAM::OIDCProvider` | Creates the GitHub provider, unless an existing provider ARN is supplied |
 | `AWS::IAM::Role` | A role that only your chosen GitHub org/repo can assume via OIDC |
 
 **Outputs:** `OIDCProviderArn` and `RoleArn` are printed in the job log, shown in the run summary, and exposed as job outputs.
@@ -44,7 +44,7 @@ git clone https://github.com/<your-user>/<this-repo>.git
 
 ### 2. Create an IAM user for the first deployment
 
-You need one-time credentials to create the OIDC provider (chicken-and-egg: OIDC doesn't exist yet). Create an IAM user with programmatic access and attach a policy like the one below.
+You need one-time credentials to create the IAM role and, unless reusing an existing provider, the OIDC provider (chicken-and-egg: OIDC doesn't exist yet). Create an IAM user with programmatic access and attach a policy like the one below.
 
 <details>
 <summary>Suggested deployer policy</summary>
@@ -121,6 +121,7 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 | `stack_name` | CloudFormation stack name | `github-oidc` |
 | `github_org` | Your GitHub org or username | *(required)* |
 | `github_repo` | Repo allowed to assume the role; `*` explicitly allows all repos in the org | *(required)* |
+| `existing_oidc_provider_arn` | Existing GitHub OIDC provider ARN; leave blank to create one | *(empty)* |
 | `github_subject` | OIDC subject suffix to restrict refs or environments | `ref:refs/heads/main` |
 | `role_name` | Name of the IAM role | `github-actions-oidc-role` |
 | `role_managed_policy_arns` | Comma-separated managed policy ARNs to attach to the role | `arn:aws:iam::aws:policy/AdministratorAccess` |
@@ -134,6 +135,10 @@ arn:aws:iam::aws:policy/AmazonEC2FullAccess,arn:aws:iam::aws:policy/AmazonS3Read
 ```
 
 `github_repo` is required. Enter a specific repository name; use `*` only if you intend to trust every repository in the organization.
+
+If the AWS account already has a GitHub OIDC provider, set `existing_oidc_provider_arn` to its ARN. The provider must belong to the same AWS account and use `https://token.actions.githubusercontent.com` with `sts.amazonaws.com` as a client ID. When supplied, this stack reuses the provider and does not manage it: its settings and existing roles' trust policies are left unchanged. This stack changes only the role it creates or updates. Only use this input for a provider external to this stack; if this stack created the provider, leave the input blank so CloudFormation continues managing it.
+
+To list provider ARNs, run `aws iam list-open-id-connect-providers --query "OpenIDConnectProviderList[].Arn" --output text` and select the GitHub provider ARN.
 
 You can use AWS-managed policies or existing customer-managed policy ARNs. IAM roles support up to 10 attached managed policies by default.
 
@@ -186,6 +191,7 @@ jobs:
 |---|---|---|
 | `GitHubOrg` | GitHub org/user | *(required)* |
 | `GitHubRepo` | Repo name or `*` | *(required)* |
+| `ExistingOIDCProviderArn` | Existing GitHub OIDC provider ARN, or empty to create one | *(empty)* |
 | `GitHubSubject` | OIDC subject suffix for refs or environments | `ref:refs/heads/main` |
 | `RoleName` | IAM role name | `github-actions-oidc-role` |
 | `RoleManagedPolicyArns` | Comma-separated managed policies attached to the role | `arn:aws:iam::aws:policy/AdministratorAccess` |
@@ -210,7 +216,7 @@ Set `github_subject` to restrict which refs or GitHub environments can assume th
 
 | Problem | Cause / Fix |
 |---|---|
-| `Provider with url https://token.actions.githubusercontent.com already exists` | AWS allows **one** OIDC provider per URL per account, and this stack always creates it. If your account already has one, delete it first (only if nothing else uses it) or deploy in a different account. |
+| `Provider with url https://token.actions.githubusercontent.com already exists` | Set `existing_oidc_provider_arn` to the ARN of the existing provider. Do not delete a provider that other roles or stacks use. |
 | `AccessDenied` on `iam:*` or `cloudformation:*` | The deployer IAM user is missing permissions. See the policy in step 2. |
 | `Requires capabilities : [CAPABILITY_NAMED_IAM]` | Already handled by the workflow. If deploying manually, add `--capabilities CAPABILITY_NAMED_IAM`. |
 | `Not authorized to perform sts:AssumeRoleWithWebIdentity` | The `sub` condition doesn't match your repo/branch, or `id-token: write` is missing in the calling workflow. |
@@ -224,7 +230,7 @@ Set `github_subject` to restrict which refs or GitHub environments can assume th
 aws cloudformation delete-stack --stack-name github-oidc --region us-east-1
 ```
 
-This removes the OIDC provider and the role created by this stack.
+This removes the role and any OIDC provider created by this stack. A provider supplied through `existing_oidc_provider_arn` is external to the stack and is left in place.
 
 ---
 
