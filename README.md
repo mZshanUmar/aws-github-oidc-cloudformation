@@ -26,7 +26,7 @@ The role's maximum session duration is set to the IAM minimum of 60 minutes in t
 Fork the repository, or clone it and push it to your own GitHub repository:
 
 ```bash
-git clone https://github.com/<your-user>/<this-repo>.git
+git clone https://github.com/mZshanUmar/aws-github-oidc-cloudformation.git
 ```
 
 Enable GitHub Actions in your repository (**Settings → Actions → General**).
