@@ -29,40 +29,10 @@ on:
         required: true
         default: ref:refs/heads/main
         description: OIDC subject suffix, such as ref:refs/heads/main or environment:production
-      aws_session_duration_minutes:
-        type: number
-        required: true
-        description: Maximum role session duration in minutes (15-720)
-
 permissions:
   contents: read
 
 jobs:
-  validate-inputs:
-    runs-on: ubuntu-latest
-    outputs:
-      role_max_session_duration_seconds: ${{ steps.validate.outputs.role_max_session_duration_seconds }}
-    steps:
-      - name: Validate Input aws_session_duration_minutes
-        id: validate
-        env:
-          AWS_SESSION_DURATION_MINUTES: ${{ inputs.aws_session_duration_minutes }}
-        run: |
-          if ! [[ "$AWS_SESSION_DURATION_MINUTES" =~ ^[0-9]+$ ]]; then
-            echo "::error::Session duration must be a whole number of minutes."
-            exit 1
-          fi
-          if [ "$AWS_SESSION_DURATION_MINUTES" -lt 15 ] || [ "$AWS_SESSION_DURATION_MINUTES" -gt 720 ]; then
-            echo "::error::Session duration must be between 15 and 720 minutes."
-            exit 1
-          fi
-          requested_session_duration_seconds=$((AWS_SESSION_DURATION_MINUTES * 60))
-          role_max_session_duration_seconds=$requested_session_duration_seconds
-          if [ "$role_max_session_duration_seconds" -lt 3600 ]; then
-            role_max_session_duration_seconds=3600
-          fi
-          echo "role_max_session_duration_seconds=$role_max_session_duration_seconds" >> "$GITHUB_OUTPUT"
-
   policy-review:
     runs-on: ubuntu-latest
     outputs:
@@ -85,7 +55,7 @@ jobs:
           fi
 
   deploy-oidc:
-    needs: [validate-inputs, policy-review]
+    needs: policy-review
     environment:
       name: ${{ needs.policy-review.outputs.requires_admin_approval == 'true' && 'administrator-access' || 'oidc-deployment' }}
     runs-on: ubuntu-latest
@@ -110,7 +80,6 @@ jobs:
           GITHUB_ORG: ${{ inputs.github_org }}
           GITHUB_REPO: ${{ inputs.github_repo }}
           GITHUB_SUBJECT: ${{ inputs.github_subject }}
-          ROLE_MAX_SESSION_DURATION_SECONDS: ${{ needs.validate-inputs.outputs.role_max_session_duration_seconds }}
         run: |
           aws cloudformation deploy --template-file cfn/github-oidc.yaml --stack-name "$STACK_NAME" --capabilities CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset \
@@ -120,8 +89,7 @@ jobs:
               RoleManagedPolicyArns="$ROLE_MANAGED_POLICY_ARNS" \
               GitHubOrg="$GITHUB_ORG" \
               GitHubRepo="$GITHUB_REPO" \
-              GitHubSubject="$GITHUB_SUBJECT" \
-              RoleMaxSessionDurationSeconds="$ROLE_MAX_SESSION_DURATION_SECONDS"
+              GitHubSubject="$GITHUB_SUBJECT"
 
       - name: Get stack outputs (ARNs)
         id: outputs

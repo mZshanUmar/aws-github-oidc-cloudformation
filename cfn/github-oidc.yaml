@@ -20,9 +20,6 @@ Parameters:
   GitHubSubject:
     Type: String
     Description: OIDC subject suffix, such as ref:refs/heads/main or environment:production
-  RoleMaxSessionDurationSeconds:
-    Type: Number
-    Description: Maximum role session duration in seconds (1 to 12 hours)
 
 Conditions:
   CreateOIDCProvider: !Equals [!Ref ExistingOidcProviderArn, ""]
@@ -42,7 +39,8 @@ Resources:
     Properties:
       RoleName: !Ref RoleName
       ManagedPolicyArns: !Ref RoleManagedPolicyArns
-      MaxSessionDuration: !Ref RoleMaxSessionDurationSeconds
+      # IAM role maximum session duration has a 1-hour minimum; adjust between 1-hour(3600sec) to 12-hour(43200sec) as needed.
+      MaxSessionDuration: 3600
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:

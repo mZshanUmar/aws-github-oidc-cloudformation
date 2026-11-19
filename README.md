@@ -15,7 +15,7 @@ The workflow shows redacted ARNs in the run summary; full ARNs are available in 
 
 ## OIDC and credential lifetime
 
-`aws_session_duration_minutes` sets the role's maximum session duration (15–720 minutes); it does not set the duration requested by workflows that assume the role. IAM requires a maximum of at least 60 minutes, so smaller inputs set the role maximum to 60 minutes. In consuming workflows, set `role-duration-seconds` separately (for example, `5400` for 90 minutes). The GitHub OIDC token is valid for 5 minutes and is separate from the AWS session.
+The role's maximum session duration is set to the IAM minimum of 60 minutes in the CloudFormation template. To change it, edit `MaxSessionDuration` in `cfn/github-oidc.yaml` (valid range: 3600–43200 seconds). This is only a ceiling; set `role-duration-seconds` in each workflow that assumes the role to choose its requested duration. For example, use `5400` for 90 minutes. The GitHub OIDC token is valid for 5 minutes and is separate from the AWS session.
 
 ---
 
@@ -113,7 +113,6 @@ Never commit these keys or pass them as workflow inputs. Inputs are visible in p
 | `github_org` | Your GitHub org or username | *(required)* |
 | `github_repo` | Repo allowed to assume the role; `*` explicitly allows all repos in the org | *(required)* |
 | `github_subject` | OIDC subject suffix to restrict refs or environments | `ref:refs/heads/main` |
-| `aws_session_duration_minutes` | Maximum role session duration (15-720 minutes); consuming workflows request their session duration separately | *(required)* |
 
 `AdministratorAccess` grants full AWS account permissions. When selected, the workflow pauses before accessing AWS if the `administrator-access` environment has **Required reviewers** configured (**Settings → Environments**). Without reviewers, it will not pause.
 
@@ -179,9 +178,8 @@ The deployment workflow uses the bootstrap secrets to deploy or update the stack
 | `GitHubOrg` | GitHub org/user | *(required)* |
 | `GitHubRepo` | Repo name or `*` | *(required)* |
 | `GitHubSubject` | OIDC subject suffix for refs or environments | `github_subject` input |
-| `RoleMaxSessionDurationSeconds` | Maximum IAM role session duration, in seconds | Calculated from `aws_session_duration_minutes` |
 
-`ExistingOidcProviderArn` is the only parameter with a default (empty). For direct deployments, provide all other parameters and set it to an existing provider ARN or leave it empty to create one.
+`ExistingOidcProviderArn` is the only parameter with a default (empty). For direct deployments, provide all other parameters and set it to an existing provider ARN or leave it empty to create one. The role's maximum session duration is hardcoded to 3600 seconds in the template.
 
 ### Restricting the trust further
 
