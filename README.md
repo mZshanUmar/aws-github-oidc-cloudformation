@@ -171,7 +171,7 @@ jobs:
   example:
     runs-on: ubuntu-latest
     steps:
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::123456789012:role/GitHubOIDCRole
           aws-region: us-east-1
