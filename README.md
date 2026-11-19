@@ -15,7 +15,7 @@ The workflow shows redacted ARNs in the run summary; full ARNs are available in 
 
 ## OIDC and credential lifetime
 
-The role's maximum session duration is set to the IAM minimum of 60 minutes in the CloudFormation template. To change it, edit `MaxSessionDuration` in `cfn/github-oidc.yaml` (valid range: 3600–43200 seconds). This is only a ceiling; set `role-duration-seconds` in each workflow that assumes the role to choose its requested duration. For example, use `5400` for 90 minutes. The GitHub OIDC token is valid for 5 minutes and is separate from the AWS session.
+The role's maximum session duration is set to the IAM minimum of 60 minutes in the CloudFormation template. To request a longer session, first raise `MaxSessionDuration` in `cfn/github-oidc.yaml` (valid range: 3600–43200 seconds), then set `role-duration-seconds` in each workflow that assumes the role. For example, to request 90 minutes, set the role maximum to at least 5400 seconds and use `role-duration-seconds: 5400`. The GitHub OIDC token is valid for 5 minutes and is separate from the AWS session.
 
 ---
 
@@ -100,6 +100,10 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 
 Never commit these keys or pass them as workflow inputs. Inputs are visible in plain text.
 
+#### AdministratorAccess notice and approval
+
+The workflow defaults to `AdministratorAccess` and flags it when selected so you know the deployment uses full AWS account access. The workflow does not inspect other policies for equivalent permissions. To pause for human approval when this policy is selected, create a GitHub environment named `admin-access-approval` under **Settings → Environments** and configure **Required reviewers**. Without required reviewers, the deployment will not pause. This setup is only needed when using `AdministratorAccess`.
+
 ### 4. Run the workflow
 
 **Actions → Deploy GitHub OIDC Provider → Run workflow**, then fill in:
@@ -114,19 +118,27 @@ Never commit these keys or pass them as workflow inputs. Inputs are visible in p
 | `github_repo` | Repo allowed to assume the role; `*` explicitly allows all repos in the org | *(required)* |
 | `github_subject` | OIDC subject suffix to restrict refs or environments | `ref:refs/heads/main` |
 
+#### Already have a GitHub OIDC provider in your AWS account?
+
+Reuse the provider, set `oidc_provider_arn` to a GitHub provider ARN in the same AWS account, configured with `https://token.actions.githubusercontent.com` and audience `sts.amazonaws.com`. The stack does not manage a supplied provider or change other roles' trust policies.
+
+List provider ARNs with `aws iam list-open-id-connect-providers --query "OpenIDConnectProviderList[].Arn" --output text`.
+
 #### Restricting the trust
 
 `github_subject` is the part after `repo:<org>/<repo>:` in the OIDC `sub` claim. Use it to restrict which refs or GitHub environments can assume the role:
 
 | `github_subject` | Allows |
 |---|---|
-| `*` | Any ref or environment in the selected repo |
+| `*` | Any subject in the selected repo, including refs, environments, and pull requests |
 | `ref:refs/heads/main` | The `main` branch |
 | `ref:refs/heads/release/*` | Branches under `release/` |
 | `ref:refs/tags/v*` | Tags starting with `v` |
 | `environment:production` | Jobs using the `production` GitHub environment |
 
-`AdministratorAccess` grants full AWS account permissions. When selected, the workflow pauses before accessing AWS if the `administrator-access` environment has **Required reviewers** configured (**Settings → Environments**). Without reviewers, it will not pause.
+#### ⚠️ Administrator Access Policy
+
+`AdministratorAccess` grants full AWS account permissions. When its ARN is selected, the workflow uses the `admin-access-approval` environment before accessing AWS. This check is for the default policy, not a general analysis of custom policy permissions. Choose narrower policies whenever possible.
 
 Enter multiple managed policy ARNs separated by commas (up to 10 by default), for example:
 
@@ -134,11 +146,7 @@ Enter multiple managed policy ARNs separated by commas (up to 10 by default), fo
 arn:aws:iam::aws:policy/AmazonEC2FullAccess,arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
 ```
 
-Use a specific `github_repo` whenever possible; `*` trusts all repositories in the selected org. Policy ARNs can refer to AWS-managed or existing customer-managed policies.
-
-To reuse a provider, set `oidc_provider_arn` to a GitHub provider in the same AWS account, configured with `https://token.actions.githubusercontent.com` and audience `sts.amazonaws.com`. The stack does not manage a supplied provider or change other roles' trust policies. Leave the input blank if this stack created the provider.
-
-List provider ARNs with `aws iam list-open-id-connect-providers --query "OpenIDConnectProviderList[].Arn" --output text`.
+Policy ARNs can refer to AWS-managed or existing customer-managed policies.
 
 ### 5. Get your ARNs
 

@@ -45,10 +45,10 @@ jobs:
         run: |
           if printf '%s' "$ROLE_MANAGED_POLICY_ARNS" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -Eq ':policy/AdministratorAccess$'; then
             echo "requires_admin_approval=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::AdministratorAccess was selected. Deployment will wait for approval."
+            echo "::warning::AdministratorAccess is selected (the workflow default). Configure required reviewers on the admin-access-approval environment to require approval."
             {
-              echo "### ⚠️ Administrator Access approval required"
-              echo "This policy grants full AWS account permissions. The deployment job will pause for a required reviewer before using AWS credentials."
+              echo "### ⚠️ AdministratorAccess selected"
+              echo "This policy grants full AWS account permissions. The deployment pauses before using AWS credentials only if the admin-access-approval environment has required reviewers configured."
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "requires_admin_approval=false" >> "$GITHUB_OUTPUT"
@@ -57,7 +57,7 @@ jobs:
   deploy-oidc:
     needs: policy-review
     environment:
-      name: ${{ needs.policy-review.outputs.requires_admin_approval == 'true' && 'administrator-access' || 'oidc-deployment' }}
+      name: ${{ needs.policy-review.outputs.requires_admin_approval == 'true' && 'admin-access-approval' || 'oidc-deployment' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
