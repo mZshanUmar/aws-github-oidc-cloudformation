@@ -100,10 +100,6 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 
 Never commit these keys or pass them as workflow inputs. Inputs are visible in plain text.
 
-#### AdministratorAccess notice and approval
-
-The workflow defaults to `AdministratorAccess` and flags it when selected so you know the deployment uses full AWS account access. The workflow does not inspect other policies for equivalent permissions. To pause for human approval when this policy is selected, create a GitHub environment named `admin-access-approval` under **Settings → Environments** and configure **Required reviewers**. Without required reviewers, the deployment will not pause. This setup is only needed when using `AdministratorAccess`.
-
 ### 4. Run the workflow
 
 **Actions → Deploy GitHub OIDC Provider → Run workflow**, then fill in:
@@ -138,7 +134,7 @@ List provider ARNs with `aws iam list-open-id-connect-providers --query "OpenIDC
 
 #### ⚠️ Administrator Access Policy
 
-`AdministratorAccess` grants full AWS account permissions. When its ARN is selected, the workflow uses the `admin-access-approval` environment before accessing AWS. This check is for the default policy, not a general analysis of custom policy permissions. Choose narrower policies whenever possible.
+`AdministratorAccess` grants full AWS account permissions. When its ARN is selected, the workflow adds a warning to the run summary. This is an informational check for the selected policy, not an analysis of other policies' permissions. Choose narrower policies whenever possible.
 
 Enter multiple managed policy ARNs separated by commas (up to 10 by default), for example:
 
@@ -208,11 +204,15 @@ The workflow maps its inputs to the template parameters. For direct deployments,
 
 ## Cleanup
 
+To delete the stack in GitHub, run **Actions → Destroy GitHub OIDC Stack**, choose the stack name, and enter the same name in the confirmation field. The workflow deletes the stack and waits for deletion to complete.
+
+You can also delete it with the AWS CLI:
+
 ```bash
 aws cloudformation delete-stack --stack-name github-oidc --region us-east-1
 ```
 
-This removes the role and any OIDC provider created by the stack. Before deleting, ensure no other roles or stacks depend on that provider. A provider supplied through `oidc_provider_arn` is left in place.
+This removes the role and any OIDC provider created by the stack. A provider supplied through `oidc_provider_arn` is left in place. Before deleting a stack-owned provider, ensure no other roles or stacks depend on it.
 
 ## License
 

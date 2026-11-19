@@ -1,0 +1,51 @@
+name: Destroy GitHub OIDC Stack
+
+on:
+  workflow_dispatch:
+    inputs:
+      stack_name:
+        description: CloudFormation stack name to delete
+        required: true
+        default: github-oidc
+      confirm_stack_name:
+        description: Type the stack name again to confirm deletion
+        required: true
+
+permissions: {}
+
+jobs:
+  destroy-stack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm stack name
+        env:
+          STACK_NAME: ${{ inputs.stack_name }}
+          CONFIRM_STACK_NAME: ${{ inputs.confirm_stack_name }}
+        run: |
+          if [[ "$CONFIRM_STACK_NAME" != "$STACK_NAME" ]]; then
+            echo "::error::Confirmation must exactly match the stack name."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Delete CloudFormation stack
+        env:
+          STACK_NAME: ${{ inputs.stack_name }}
+        run: |
+          echo "::warning::Deleting CloudFormation stack '$STACK_NAME' and its stack-managed resources."
+          {
+            echo "### Deleting CloudFormation stack"
+            echo "Stack: \`$STACK_NAME\`"
+            echo "Resources managed by this stack will be deleted. An OIDC provider supplied as an external ARN is not managed by this stack."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          aws cloudformation delete-stack --stack-name "$STACK_NAME"
+          aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME"
+          echo "Stack deletion completed."
+          echo "Stack deletion completed successfully." >> "$GITHUB_STEP_SUMMARY"
