@@ -114,6 +114,18 @@ Never commit these keys or pass them as workflow inputs. Inputs are visible in p
 | `github_repo` | Repo allowed to assume the role; `*` explicitly allows all repos in the org | *(required)* |
 | `github_subject` | OIDC subject suffix to restrict refs or environments | `ref:refs/heads/main` |
 
+#### Restricting the trust
+
+`github_subject` is the part after `repo:<org>/<repo>:` in the OIDC `sub` claim. Use it to restrict which refs or GitHub environments can assume the role:
+
+| `github_subject` | Allows |
+|---|---|
+| `*` | Any ref or environment in the selected repo |
+| `ref:refs/heads/main` | The `main` branch |
+| `ref:refs/heads/release/*` | Branches under `release/` |
+| `ref:refs/tags/v*` | Tags starting with `v` |
+| `environment:production` | Jobs using the `production` GitHub environment |
+
 `AdministratorAccess` grants full AWS account permissions. When selected, the workflow pauses before accessing AWS if the `administrator-access` environment has **Required reviewers** configured (**Settings → Environments**). Without reviewers, it will not pause.
 
 Enter multiple managed policy ARNs separated by commas (up to 10 by default), for example:
@@ -168,30 +180,9 @@ The deployment workflow uses the bootstrap secrets to deploy or update the stack
 
 ---
 
-## Template parameters
+## Direct CloudFormation deployments
 
-| Parameter | Description | Value supplied by workflow |
-|---|---|---|
-| `ExistingOidcProviderArn` | Existing GitHub OIDC provider ARN; leave blank to create one | Empty string |
-| `RoleName` | IAM role name | `role_name` input |
-| `RoleManagedPolicyArns` | Comma-separated managed policies attached to the role | `aws_managed_policy_arns` input |
-| `GitHubOrg` | GitHub org/user | *(required)* |
-| `GitHubRepo` | Repo name or `*` | *(required)* |
-| `GitHubSubject` | OIDC subject suffix for refs or environments | `github_subject` input |
-
-`ExistingOidcProviderArn` is the only parameter with a default (empty). For direct deployments, provide all other parameters and set it to an existing provider ARN or leave it empty to create one. The role's maximum session duration is hardcoded to 3600 seconds in the template.
-
-### Restricting the trust further
-
-Set `github_subject` to restrict which refs or GitHub environments can assume the role. It is the part after `repo:<org>/<repo>:` in the OIDC `sub` claim:
-
-| `github_subject` | Allows |
-|---|---|
-| `*` | Any ref or environment in the selected repo |
-| `ref:refs/heads/main` | The `main` branch |
-| `ref:refs/heads/release/*` | Branches under `release/` |
-| `ref:refs/tags/v*` | Tags starting with `v` |
-| `environment:production` | Jobs using the `production` GitHub environment |
+The workflow maps its inputs to the template parameters. For direct deployments, provide all template parameters except `ExistingOidcProviderArn`, which defaults to an empty string. You can always set it to a GitHub provider ARN to reuse one. The role's maximum session duration is set to 3600 seconds in the template; edit `MaxSessionDuration` there to change it.
 
 ---
 
