@@ -13,10 +13,12 @@ Parameters:
     Description: Comma-separated managed policy ARNs attached to the role
   GitHubOrg:
     Type: String
-    Description: GitHub organization or username (e.g. my-org)
+    AllowedPattern: '^[^@]+@[0-9]+$'
+    Description: GitHub organization or username in name@numeric_id format
   GitHubRepo:
     Type: String
-    Description: Repository name; set * to allow all repos in the org
+    AllowedPattern: '^([^@]+@[0-9]+|\*@\*)$'
+    Description: Repository in name@numeric_id format; use *@* to allow all repositories
   GitHubSubject:
     Type: String
     Description: OIDC subject suffix, such as ref:refs/heads/main or environment:production

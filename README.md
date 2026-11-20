@@ -110,17 +110,19 @@ Never commit these keys or pass them as workflow inputs. Inputs are visible in p
 | `oidc_provider_arn` | Existing GitHub OIDC provider ARN; leave blank to create one | *(empty)* |
 | `role_name` | IAM role name | `GitHubOIDCRole` |
 | `aws_managed_policy_arns` | Comma-separated managed policy ARNs to attach to the role | `arn:aws:iam::aws:policy/AdministratorAccess` |
-| `github_org` | GitHub org or username; add `@OWNER_ID` when using immutable subjects | *(required)* |
-| `github_repo` | Repository; add `@REPOSITORY_ID` for immutable subjects, or use `*` / `*@*` to allow all repos | *(required)* |
+| `github_org` | GitHub org or username in `OWNER@OWNER_ID` format | *(required)* |
+| `github_repo` | Repository in `REPO@REPOSITORY_ID` format; use `*@*` for all repos | *(required)* |
 | `github_subject` | OIDC subject suffix to restrict refs or environments | `ref:refs/heads/main` |
 
-For repositories created after July 15, 2026, or repositories opted in to immutable subject claims, include IDs in the existing inputs as `owner@OWNER_ID` and `repo@REPOSITORY_ID`. With the GitHub CLI installed and authenticated (use `gh auth login` if needed), fetch them with:
+This workflow configures the role for GitHub's immutable subject format. Enter the owner and repository IDs in the existing inputs as `owner@OWNER_ID` and `repo@REPOSITORY_ID`. With the GitHub CLI installed and authenticated (use `gh auth login` if needed), fetch them with:
 
 ```bash
 gh api repos/OWNER/REPO --jq '"Owner ID: \(.owner.id)\nRepository ID: \(.id)"'
 ```
 
-Replace `OWNER/REPO` with the repository's owner and name, then enter the values into `github_org` and `github_repo` as `OWNER@OWNER_ID` and `REPO@REPOSITORY_ID`. For example, `mZshanUmar@123456` and `terraform_aws_vpc_setup@789012`. For all repositories under an owner using immutable subjects, use `*@*` for `github_repo`. For name-only subjects, enter the owner and repository names without IDs. The workflow rejects mixed name-only and ID-based formats.
+Replace `OWNER/REPO` with the repository's owner and name, then enter the values into `github_org` and `github_repo` as `OWNER@OWNER_ID` and `REPO@REPOSITORY_ID`. For example, `mZshanUmar@123456` and `terraform_aws_vpc_setup@789012`. To allow all repositories under that owner, use `*@*` for `github_repo`. Both IDs are required; name-only values are rejected.
+
+Repositories created before July 15, 2026 may still use name-only OIDC subjects unless immutable subject claims have been enabled in GitHub's OIDC settings. Enable immutable subjects for the calling repository, or role assumption will fail because the trust policy expects IDs.
 
 #### Already have a GitHub OIDC provider in your AWS account?
 
@@ -130,7 +132,7 @@ List provider ARNs with `aws iam list-open-id-connect-providers --query "OpenIDC
 
 #### Restricting the trust
 
-`github_subject` is the part after the repository identity in the OIDC `sub` claim. The identity is built from `github_org` and `github_repo`: for example, `OWNER/REPO` in name-only format or `OWNER@OWNER_ID/REPO@REPOSITORY_ID` in immutable format. Use `github_subject` to restrict which refs or GitHub environments can assume the role:
+`github_subject` is the part after the repository identity in the OIDC `sub` claim. The identity is built from `github_org` and `github_repo`, for example `repo:OWNER@OWNER_ID/REPO@REPOSITORY_ID`. Use `github_subject` to restrict which refs or GitHub environments can assume the role:
 
 | `github_subject` | Allows |
 |---|---|
@@ -194,11 +196,19 @@ The deployment workflow uses the bootstrap secrets to deploy or update the stack
 
 ## Direct CloudFormation deployments
 
-The workflow maps its inputs to the template parameters. For direct deployments, provide all required parameters. Use the same `name@ID` format in `GitHubOrg` and `GitHubRepo` for immutable subjects, or names only for both. Set `ExistingOidcProviderArn` to reuse a provider or leave it empty to create one. The role's maximum session duration is set to 3600 seconds in the template; edit `MaxSessionDuration` there to change it.
+The workflow maps its inputs to the template parameters. For direct deployments, provide all required parameters and use `name@ID` values for both `GitHubOrg` and `GitHubRepo` (or `*@*` for `GitHubRepo` to allow all repositories). Set `ExistingOidcProviderArn` to reuse a provider or leave it empty to create one. The role's maximum session duration is set to 3600 seconds in the template; edit `MaxSessionDuration` there to change it.
 
 ---
 
 ## Troubleshooting
+
+### Diagnose `AssumeRoleWithWebIdentity` failures
+
+Copy [examples/diagnose-oidc.yml](./examples/diagnose-oidc.yml) into the calling repository at `.github/workflows/diagnose-oidc.yml`. Add an `AWS_ROLE_ARN` Actions secret containing the role ARN, then run **Actions → Diagnose AWS OIDC Role → Run workflow**.
+
+The workflow prints only the `iss`, `aud`, `sub`, `repository`, and `ref` claims—not the OIDC token. Compare `iss` with `https://token.actions.githubusercontent.com`, `aud` with `sts.amazonaws.com`, and `sub` with the role's `token.actions.githubusercontent.com:sub` trust condition. With immutable subjects, verify `sub` contains the expected owner and repository IDs in `OWNER@OWNER_ID/REPO@REPOSITORY_ID` format. Also confirm the role trusts the OIDC provider ARN in the same AWS account and that the caller has `id-token: write`. `AdministratorAccess` does not fix a trust-policy mismatch. If the calling job uses a GitHub Environment, add the same `environment` to the diagnostic job because it changes the `sub` claim.
+
+The diagnostic uses `retry-max-attempts: 1` so a trust failure returns quickly. Remove the temporary workflow after troubleshooting if you no longer need it.
 
 | Problem | Cause / Fix |
 |---|---|
