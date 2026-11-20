@@ -21,10 +21,10 @@ on:
         description: Comma-separated managed policy ARNs to attach.
       github_org:
         required: true
-        description: GitHub org/user allowed to assume the role
+        description: GitHub owner name or name@owner_id
       github_repo:
         required: true
-        description: GitHub repo allowed to assume the role (* explicitly allows all repos in the org)
+        description: GitHub repo name or name@repository_id; use * or *@* to allow all repos
       github_subject:
         required: true
         default: ref:refs/heads/main
@@ -54,6 +54,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Validate GitHub subject identity
+        env:
+          GITHUB_ORG: ${{ inputs.github_org }}
+          GITHUB_REPO: ${{ inputs.github_repo }}
+        run: |
+          owner_uses_id=false
+          repo_uses_id=false
+
+          if [[ "$GITHUB_ORG" == *"@"* ]]; then
+            if [[ ! "$GITHUB_ORG" =~ ^[^@]+@[0-9]+$ ]]; then
+              echo "::error::Use github_org as name@numeric_owner_id."
+              exit 1
+            fi
+            owner_uses_id=true
+          fi
+
+          if [[ "$GITHUB_REPO" == *"@"* ]]; then
+            if [[ "$GITHUB_REPO" == "*@*" ]]; then
+              repo_uses_id=true
+            elif [[ "$GITHUB_REPO" =~ ^[^@]+@[0-9]+$ ]]; then
+              repo_uses_id=true
+            else
+              echo "::error::Use github_repo as name@numeric_repository_id or *@* for all repositories with immutable subjects."
+              exit 1
+            fi
+          fi
+
+          if [[ "$owner_uses_id" != "$repo_uses_id" ]]; then
+            echo "::error::Use name@ID format for both github_org and github_repo, or use names only for both."
+            exit 1
+          fi
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
